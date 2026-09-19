@@ -146,7 +146,7 @@ fn train_command(args: &[String]) -> Result<(), String> {
             let tokenizer = Tokenizer::load(Path::new(required(args, "--tokenizer")?))?;
             let dataset = required(args, "--dataset")?;
             let format = dataset_format(args, Path::new(dataset))?;
-            let mut trainer = Trainer::from_checkpoint(
+            let trainer = Trainer::from_checkpoint(
                 checkpoint,
                 tokenizer,
                 dataset,
