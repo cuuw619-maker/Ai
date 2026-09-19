@@ -514,6 +514,17 @@ impl AiNet {
         sum.sqrt() as f32
     }
 
+    pub fn scale_gradients(&mut self, scale: f32) {
+        if !scale.is_finite() {
+            return;
+        }
+        for p in self.parameters_mut() {
+            for g in &mut p.grad {
+                *g *= scale;
+            }
+        }
+    }
+
     pub fn clip_grad_norm(&mut self, max_norm: f32) -> (f32, bool) {
         let norm = self.global_gradient_norm();
         if max_norm > 0.0 && norm > max_norm {
