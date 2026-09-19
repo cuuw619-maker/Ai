@@ -208,7 +208,7 @@ impl Trainer {
             data_root.as_ref().to_path_buf(),
             data.run_id.clone(),
             data.dataset_id.clone(),
-            data.cursor.clone(),
+            Some(data.cursor.clone()),
             true,
         )?;
         trainer.state = data.state.clone();
