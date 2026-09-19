@@ -2,7 +2,7 @@ use super::merge::Merge;
 use super::tokenizer::Tokenizer;
 use super::vocab::SpecialToken;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 
 const MAGIC: &[u8; 8] = b"AITOKv01";
