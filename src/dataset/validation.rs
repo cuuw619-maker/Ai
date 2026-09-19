@@ -3,7 +3,7 @@ use crate::tokenizer::Tokenizer;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DatasetMetadata {
