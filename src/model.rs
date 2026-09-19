@@ -8,6 +8,7 @@ const MODEL_VERSION: u32 = 1;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelConfig {
     pub architecture: String,
+    pub model_id: String,
     pub vocab_size: usize,
     pub embedding_dim: usize,
     pub hidden_dim: usize,
@@ -18,8 +19,8 @@ pub struct ModelConfig {
 
 impl ModelConfig {
     pub fn validate(&self) -> Result<(), String> {
-        if self.architecture != "AiNet-v1" {
-            return Err("unsupported architecture id".into());
+        if self.architecture != "AiNet-v1" && self.architecture != "AiNet-v1.1" {
+            return Err(format!("unsupported architecture id: {}", self.architecture));
         }
         if self.vocab_size < 2
             || self.embedding_dim == 0
@@ -232,6 +233,8 @@ impl AiCell {
 pub struct AiNet {
     pub config: ModelConfig,
     pub embedding: Parameter,
+    pub input_projection_w: Option<Parameter>,
+    pub input_projection_b: Option<Parameter>,
     pub cells: Vec<AiCell>,
     pub output_w: Parameter,
     pub output_b: Parameter,
@@ -246,6 +249,17 @@ impl AiNet {
             "embedding.weight",
             uniform(config.vocab_size * config.embedding_dim, 0.1, &mut rng),
         );
+        let (input_projection_w, input_projection_b) = if config.architecture == "AiNet-v1.1" {
+            (
+                Some(Parameter::new(
+                    "input_projection.weight",
+                    xavier_uniform(config.hidden_dim, config.embedding_dim, &mut rng),
+                )),
+                Some(Parameter::zeros("input_projection.bias", config.hidden_dim)),
+            )
+        } else {
+            (None, None)
+        };
         let mut cells = Vec::with_capacity(config.layer_count);
         for layer in 0..config.layer_count {
             cells.push(AiCell::new(
@@ -263,6 +277,8 @@ impl AiNet {
         Ok(Self {
             config,
             embedding,
+            input_projection_w,
+            input_projection_b,
             cells,
             output_w,
             output_b,
@@ -272,6 +288,8 @@ impl AiNet {
 
     pub fn parameter_count(&self) -> usize {
         self.embedding.len()
+            + self.input_projection_w.as_ref().map_or(0, Parameter::len)
+            + self.input_projection_b.as_ref().map_or(0, Parameter::len)
             + self.output_w.len()
             + self.output_b.len()
             + self.cells.iter().map(AiCell::parameter_count).sum::<usize>()
@@ -279,6 +297,12 @@ impl AiNet {
 
     pub fn zero_grad(&mut self) {
         self.embedding.zero_grad();
+        if let Some(p) = &mut self.input_projection_w {
+            p.zero_grad();
+        }
+        if let Some(p) = &mut self.input_projection_b {
+            p.zero_grad();
+        }
         for cell in &mut self.cells {
             for p in cell.parameters_mut() {
                 p.zero_grad();
@@ -291,6 +315,12 @@ impl AiNet {
     pub fn parameters_mut(&mut self) -> Vec<&mut Parameter> {
         let mut result = Vec::with_capacity(self.config.layer_count * 11 + 3);
         result.push(&mut self.embedding);
+        if let Some(p) = &mut self.input_projection_w {
+            result.push(p);
+        }
+        if let Some(p) = &mut self.input_projection_b {
+            result.push(p);
+        }
         for cell in &mut self.cells {
             for p in cell.parameters_mut() {
                 result.push(p);
@@ -331,12 +361,12 @@ impl AiNet {
             .map(|_| Vec::with_capacity(input_tokens.len()))
             .collect();
         let mut hidden_history = Vec::with_capacity(input_tokens.len());
+        let mut embedding_history = Vec::with_capacity(input_tokens.len());
 
         for &token in input_tokens {
-            let mut x = project_embedding(
-                &embedding_row(&self.embedding.data, token, self.config.embedding_dim),
-                self.config.hidden_dim,
-            );
+            let embedding = embedding_row(&self.embedding.data, token, self.config.embedding_dim);
+            embedding_history.push(embedding.clone());
+            let mut x = self.project_input(&embedding)?;
             for (layer, cell) in self.cells.iter().enumerate() {
                 let cache = cell.forward(&x, &memory[layer]);
                 memory[layer] = cache.new_memory.clone();
@@ -390,16 +420,97 @@ impl AiNet {
             }
             let token = input_tokens[t];
             let embedding_dim = self.config.embedding_dim;
-            let hidden_dim = self.config.hidden_dim;
             let base = token * embedding_dim;
-            for i in 0..embedding_dim {
-                if i < hidden_dim {
+            let embedding = &embedding_history[t];
+
+            if let (Some(w), Some(b)) = (&mut self.input_projection_w, &mut self.input_projection_b) {
+                outer_add(&mut w.grad, &upstream, embedding, self.config.hidden_dim, embedding_dim);
+                for i in 0..self.config.hidden_dim {
+                    b.grad[i] += upstream[i];
+                }
+                let grad_embedding = matvec_transposed(
+                    w.data.as_slice(),
+                    &upstream,
+                    self.config.hidden_dim,
+                    embedding_dim,
+                );
+                for i in 0..embedding_dim {
+                    self.embedding.grad[base + i] += grad_embedding[i];
+                }
+            } else {
+                let copy = embedding_dim.min(upstream.len());
+                for i in 0..copy {
                     self.embedding.grad[base + i] += upstream[i];
                 }
             }
         }
 
         Ok(loss * scale)
+    }
+
+    pub fn weights_checksum(&self) -> u64 {
+        let mut bytes = Vec::with_capacity(self.parameter_count() * 4);
+        for (_, data) in self.parameter_snapshot() {
+            for value in data {
+                bytes.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        fnv1a64(&bytes)
+    }
+
+    pub fn parameter_names(&self) -> Vec<String> {
+        self.parameter_snapshot().into_iter().map(|(name, _)| name).collect()
+    }
+
+    pub fn global_gradient_norm(&mut self) -> f32 {
+        let mut sum = 0.0f64;
+        let params = self.parameters_mut();
+        for p in params {
+            for g in &p.grad {
+                sum += (*g as f64) * (*g as f64);
+            }
+        }
+        sum.sqrt() as f32
+    }
+
+    pub fn clip_grad_norm(&mut self, max_norm: f32) -> (f32, bool) {
+        let norm = self.global_gradient_norm();
+        if max_norm > 0.0 && norm > max_norm {
+            let scale = max_norm / norm;
+            let params = self.parameters_mut();
+            for p in params {
+                for g in &mut p.grad {
+                    *g *= scale;
+                }
+            }
+            (norm, true)
+        } else {
+            (norm, false)
+        }
+    }
+
+    pub fn estimated_training_bytes(&self, sequence_length: usize) -> usize {
+        let parameter_bytes = self.parameter_count() * std::mem::size_of::<f32>();
+        let gradient_bytes = parameter_bytes;
+        let optimizer_bytes = parameter_bytes * 2;
+        let bptt_cache_bytes =
+            sequence_length * self.config.layer_count * self.config.hidden_dim * 7
+                * std::mem::size_of::<f32>();
+        let hidden_history_bytes =
+            sequence_length * self.config.hidden_dim * std::mem::size_of::<f32>();
+        parameter_bytes + gradient_bytes + optimizer_bytes + bptt_cache_bytes + hidden_history_bytes
+    }
+
+    fn project_input(&self, embedding: &[f32]) -> Result<Vec<f32>, String> {
+        if let (Some(w), Some(b)) = (&self.input_projection_w, &self.input_projection_b) {
+            let mut x = matvec(w.data.as_slice(), embedding, self.config.hidden_dim);
+            for i in 0..self.config.hidden_dim {
+                x[i] += b.data[i];
+            }
+            Ok(x)
+        } else {
+            Ok(project_embedding(embedding, self.config.hidden_dim))
+        }
     }
 
     pub fn reset_state(&mut self) {
@@ -434,10 +545,8 @@ impl AiNet {
         if token >= self.config.vocab_size {
             return Err("token id outside vocabulary".into());
         }
-        let mut x = project_embedding(
-            &embedding_row(&self.embedding.data, token, self.config.embedding_dim),
-            self.config.hidden_dim,
-        );
+        let embedding = embedding_row(&self.embedding.data, token, self.config.embedding_dim);
+        let mut x = self.project_input(&embedding)?;
         for layer in 0..self.config.layer_count {
             let cell = &self.cells[layer];
             let cache = cell.forward(&x, &self.runtime_memory[layer]);
@@ -456,30 +565,31 @@ impl AiNet {
     }
 
     pub fn save(&self, path: impl AsRef<Path>) -> Result<(), String> {
-        let payload = self.encode_payload()?;
+        let payload = self.encode_payload_v2()?;
         let checksum = fnv1a64(&payload);
         let mut bytes = Vec::with_capacity(28 + payload.len());
-        bytes.extend_from_slice(MODEL_MAGIC);
-        bytes.extend_from_slice(&MODEL_VERSION.to_le_bytes());
+        bytes.extend_from_slice(b"AIMDLv02");
+        bytes.extend_from_slice(&2u32.to_le_bytes());
         bytes.extend_from_slice(&checksum.to_le_bytes());
         bytes.extend_from_slice(&(payload.len() as u64).to_le_bytes());
         bytes.extend_from_slice(&payload);
-        let temp = path.as_ref().with_extension("aimodel.tmp");
-        fs::write(&temp, &bytes).map_err(|e| format!("write model temp: {e}"))?;
-        if path.as_ref().exists() {
-            fs::remove_file(path.as_ref()).map_err(|e| format!("replace model: {e}"))?;
-        }
-        fs::rename(&temp, path).map_err(|e| format!("atomic model rename: {e}"))?;
+        atomic_save_with_previous(path.as_ref(), &bytes)?;
         Ok(())
     }
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
         let bytes = fs::read(path).map_err(|e| format!("read model: {e}"))?;
-        if bytes.len() < 28 || &bytes[..8] != MODEL_MAGIC {
+        if bytes.len() < 28 {
+            return Err("invalid .aimodel header".into());
+        }
+        if &bytes[..8] == b"AIMDLv01" {
+            return Self::load_v1(&bytes);
+        }
+        if &bytes[..8] != b"AIMDLv02" {
             return Err("invalid .aimodel magic".into());
         }
         let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
-        if version != MODEL_VERSION {
+        if version != 2 {
             return Err(format!("unsupported .aimodel version {version}"));
         }
         let expected_checksum = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
@@ -491,10 +601,27 @@ impl AiNet {
         if fnv1a64(payload) != expected_checksum {
             return Err("model checksum mismatch".into());
         }
-        Self::decode_payload(payload)
+        Self::decode_payload_v2(payload)
     }
 
-    fn encode_payload(&self) -> Result<Vec<u8>, String> {
+    fn load_v1(bytes: &[u8]) -> Result<Self, String> {
+        let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
+        if version != 1 {
+            return Err(format!("unsupported legacy .aimodel version {version}"));
+        }
+        let expected_checksum = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
+        let payload_len = u64::from_le_bytes(bytes[20..28].try_into().unwrap()) as usize;
+        if bytes.len() != 28 + payload_len {
+            return Err("invalid legacy .aimodel payload length".into());
+        }
+        let payload = &bytes[28..];
+        if fnv1a64(payload) != expected_checksum {
+            return Err("legacy model checksum mismatch".into());
+        }
+        Self::decode_payload_v1(payload)
+    }
+
+    fn encode_payload_v1(&self) -> Result<Vec<u8>, String> {
         let mut w = Writer::default();
         w.str(&self.config.architecture);
         w.u64(self.config.vocab_size as u64);
@@ -515,16 +642,93 @@ impl AiNet {
         Ok(w.bytes)
     }
 
-    fn decode_payload(payload: &[u8]) -> Result<Self, String> {
+    fn encode_payload_v2(&self) -> Result<Vec<u8>, String> {
+        let mut w = Writer::default();
+        w.str(&self.config.architecture);
+        w.str(&self.config.model_id);
+        w.u64(self.config.vocab_size as u64);
+        w.u64(self.config.embedding_dim as u64);
+        w.u64(self.config.hidden_dim as u64);
+        w.u64(self.config.layer_count as u64);
+        w.u64(self.config.sequence_length as u64);
+        w.u64(self.config.seed);
+        let params = self.parameter_snapshot();
+        w.u64(params.len() as u64);
+        for (name, data) in params {
+            w.str(&name);
+            w.u8(0);
+            w.u64(data.len() as u64);
+            for value in data {
+                w.f32(value);
+            }
+        }
+        Ok(w.bytes)
+    }
+
+    fn decode_payload_v2(payload: &[u8]) -> Result<Self, String> {
         let mut r = Reader::new(payload);
         let config = ModelConfig {
             architecture: r.str()?,
+            model_id: r.str()?,
             vocab_size: r.u64()? as usize,
             embedding_dim: r.u64()? as usize,
             hidden_dim: r.u64()? as usize,
             layer_count: r.u64()? as usize,
             sequence_length: r.u64()? as usize,
             seed: r.u64()?,
+        };
+        let mut model = AiNet::new(config)?;
+        let count = r.u64()? as usize;
+        let mut expected = model.parameter_snapshot();
+        if expected.len() != count {
+            return Err("parameter count mismatch".into());
+        }
+        for (expected_name, expected_data) in &mut expected {
+            let name = r.str()?;
+            if &name != expected_name {
+                return Err(format!("parameter order/name mismatch: {name}"));
+            }
+            let dtype = r.u8()?;
+            if dtype != 0 {
+                return Err(format!("unsupported parameter dtype {dtype}"));
+            }
+            let len = r.u64()? as usize;
+            if len != expected_data.len() {
+                return Err(format!("parameter length mismatch for {name}"));
+            }
+            for value in expected_data.iter_mut() {
+                *value = r.f32()?;
+            }
+        }
+        if !r.finished() {
+            return Err("trailing bytes in .aimodel v2 payload".into());
+        }
+        let mut params = model.parameters_mut();
+        for (param, (_, data)) in params.iter_mut().zip(expected.into_iter()) {
+            param.data.copy_from_slice(&data);
+            param.grad.fill(0.0);
+        }
+        Ok(model)
+    }
+
+    fn decode_payload_v1(payload: &[u8]) -> Result<Self, String> {
+        let mut r = Reader::new(payload);
+        let architecture = r.str()?;
+        let vocab_size = r.u64()? as usize;
+        let embedding_dim = r.u64()? as usize;
+        let hidden_dim = r.u64()? as usize;
+        let layer_count = r.u64()? as usize;
+        let sequence_length = r.u64()? as usize;
+        let seed = r.u64()?;
+        let config = ModelConfig {
+            architecture,
+            model_id: format!("legacy-{seed:016x}"),
+            vocab_size,
+            embedding_dim,
+            hidden_dim,
+            layer_count,
+            sequence_length,
+            seed,
         };
         let mut model = AiNet::new(config)?;
         let count = r.u64()? as usize;
@@ -559,6 +763,12 @@ impl AiNet {
     fn parameter_snapshot(&self) -> Vec<(String, Vec<f32>)> {
         let mut result = Vec::new();
         result.push((self.embedding.name.clone(), self.embedding.data.clone()));
+        if let Some(p) = &self.input_projection_w {
+            result.push((p.name.clone(), p.data.clone()));
+        }
+        if let Some(p) = &self.input_projection_b {
+            result.push((p.name.clone(), p.data.clone()));
+        }
         for cell in &self.cells {
             let ps = [
                 &cell.w_keep,
@@ -583,7 +793,48 @@ impl AiNet {
     }
 }
 
-fn embedding_row(data: &[f32], token: usize, dim: usize) -> Vec<f32> {
+fn atomic_save_with_previous(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let temp = path.with_extension("aimodel.tmp");
+    let previous = path.with_extension("aimodel.prev");
+
+    {
+        let mut file = fs::File::create(&temp).map_err(|e| format!("create model temp: {e}"))?;
+        file.write_all(bytes).map_err(|e| format!("write model temp: {e}"))?;
+        file.flush().map_err(|e| format!("flush model temp: {e}"))?;
+        file.sync_all().map_err(|e| format!("sync model temp: {e}"))?;
+    }
+
+    if path.exists() {
+        if previous.exists() {
+            fs::remove_file(&previous).map_err(|e| format!("remove previous model: {e}"))?;
+        }
+        fs::rename(path, &previous).map_err(|e| format!("rotate current model: {e}"))?;
+    }
+
+    match fs::rename(&temp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            if previous.exists() && !path.exists() {
+                let _ = fs::rename(&previous, path);
+            }
+            let _ = fs::remove_file(&temp);
+            Err(format!("install model atomically: {e}"))
+        }
+    }
+}
+
+fn matvec_transposed(matrix: &[f32], vector: &[f32], rows: usize, cols: usize) -> Vec<f32> {
+    let mut out = vec![0.0; cols];
+    for r in 0..rows {
+        for c in 0..cols {
+            out[c] += matrix[r * cols + c] * vector[r];
+        }
+    }
+    out
+}
+
+fn embedding_row(data: &[f32], token: usize, dim: usize) {
     data[token * dim..(token + 1) * dim].to_vec()
 }
 
@@ -741,6 +992,10 @@ impl Writer {
         self.bytes.extend_from_slice(&value.to_le_bytes());
     }
 
+    fn u8(&mut self, value: u8) {
+        self.bytes.push(value);
+    }
+
     fn f32(&mut self, value: f32) {
         self.bytes.extend_from_slice(&value.to_le_bytes());
     }
@@ -773,6 +1028,10 @@ impl<'a> Reader<'a> {
         Ok(f32::from_le_bytes(self.take(4)?.try_into().unwrap()))
     }
 
+    fn u8(&mut self) -> Result<u8, String> {
+        Ok(self.take(1)?[0])
+    }
+
     fn str(&mut self) -> Result<String, String> {
         let len = self.u64()? as usize;
         let bytes = self.take(len)?;
@@ -792,7 +1051,8 @@ mod tests {
 
     fn tiny_config() -> ModelConfig {
         ModelConfig {
-            architecture: "AiNet-v1".into(),
+            architecture: "AiNet-v1.1".into(),
+            model_id: "tiny-test".into(),
             vocab_size: 8,
             embedding_dim: 8,
             hidden_dim: 8,
