@@ -848,7 +848,7 @@ fn matvec_transposed(matrix: &[f32], vector: &[f32], rows: usize, cols: usize) -
     out
 }
 
-fn embedding_row(data: &[f32], token: usize, dim: usize) {
+fn embedding_row(data: &[f32], token: usize, dim: usize) -> Vec<f32> {
     data[token * dim..(token + 1) * dim].to_vec()
 }
 
@@ -1117,6 +1117,117 @@ mod tests {
     }
 
     #[test]
+    fn projection_and_embedding_gradients_match_numerical() {
+        let mut model = AiNet::new(ModelConfig {
+            architecture: "AiNet-v1.1".into(),
+            model_id: "projection-test".into(),
+            vocab_size: 8,
+            embedding_dim: 5,
+            hidden_dim: 7,
+            layer_count: 1,
+            sequence_length: 4,
+            seed: 67890,
+        }).unwrap();
+        let input = [1usize, 2, 3, 4];
+        let target = [2usize, 3, 4, 5];
+
+        model.train_step(&input, &target, None).unwrap();
+
+        let (projection_index, analytical_projection) = model
+            .input_projection_w
+            .as_ref()
+            .unwrap()
+            .grad
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap())
+            .map(|(i, g)| (i, *g))
+            .unwrap();
+
+        let (embedding_index, analytical_embedding) = model
+            .embedding
+            .grad
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap())
+            .map(|(i, g)| (i, *g))
+            .unwrap();
+
+        let eps = 1e-2f32;
+
+        let original_projection = model.input_projection_w.as_ref().unwrap().data[projection_index];
+        model.input_projection_w.as_mut().unwrap().data[projection_index] = original_projection + eps;
+        let plus_projection = loss_without_grads(&mut model, &input, &target);
+        model.input_projection_w.as_mut().unwrap().data[projection_index] = original_projection - eps;
+        let minus_projection = loss_without_grads(&mut model, &input, &target);
+        model.input_projection_w.as_mut().unwrap().data[projection_index] = original_projection;
+
+        let numerical_projection = (plus_projection - minus_projection) / (2.0 * eps);
+        let proj_den = analytical_projection.abs().max(numerical_projection.abs()).max(1e-5);
+        assert!(
+            (analytical_projection - numerical_projection).abs() < 5e-4
+                || (analytical_projection - numerical_projection).abs() / proj_den < 1e-1,
+            "projection gradient mismatch: analytical={analytical_projection}, numerical={numerical_projection}"
+        );
+
+        let original_embedding = model.embedding.data[embedding_index];
+        model.embedding.data[embedding_index] = original_embedding + eps;
+        let plus_embedding = loss_without_grads(&mut model, &input, &target);
+        model.embedding.data[embedding_index] = original_embedding - eps;
+        let minus_embedding = loss_without_grads(&mut model, &input, &target);
+        model.embedding.data[embedding_index] = original_embedding;
+
+        let numerical_embedding = (plus_embedding - minus_embedding) / (2.0 * eps);
+        let emb_den = analytical_embedding.abs().max(numerical_embedding.abs()).max(1e-5);
+        assert!(
+            (analytical_embedding - numerical_embedding).abs() < 5e-4
+                || (analytical_embedding - numerical_embedding).abs() / emb_den < 1e-1,
+            "embedding gradient mismatch: analytical={analytical_embedding}, numerical={numerical_embedding}"
+        );
+    }
+
+    #[test]
+    fn deterministic_initialization_matches_for_equal_seed() {
+        let a = AiNet::new(tiny_config()).unwrap();
+        let b = AiNet::new(tiny_config()).unwrap();
+        assert_eq!(a.parameter_snapshot(), b.parameter_snapshot());
+    }
+
+    #[test]
+    fn legacy_v1_aimodel_loads_without_projection() {
+        let model = AiNet::new(ModelConfig {
+            architecture: "AiNet-v1".into(),
+            model_id: "legacy-source".into(),
+            vocab_size: 8,
+            embedding_dim: 8,
+            hidden_dim: 8,
+            layer_count: 1,
+            sequence_length: 8,
+            seed: 24680,
+        }).unwrap();
+
+        let payload = model.encode_payload_v1().unwrap();
+        let checksum = super::fnv1a64(&payload);
+        let mut bytes = Vec::with_capacity(28 + payload.len());
+        bytes.extend_from_slice(b"AIMDLv01");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&checksum.to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&payload);
+
+        let path = std::env::temp_dir().join("ainet-legacy-v1-test.aimodel");
+        std::fs::write(&path, bytes).unwrap();
+        let loaded = AiNet::load(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(loaded.config.architecture, "AiNet-v1");
+        assert_eq!(loaded.config.model_id, "legacy-0000000000006078");
+        assert_eq!(loaded.parameter_count(), model.parameter_count());
+        assert_eq!(loaded.parameter_snapshot(), model.parameter_snapshot());
+        assert!(loaded.input_projection_w.is_none());
+    }
+
+    #[test]
     fn gradient_check_for_ai_cell() {
         let mut model = AiNet::new(tiny_config()).unwrap();
         let input = [1usize, 2];
@@ -1156,10 +1267,12 @@ mod tests {
             vec![vec![0.0; model.config.hidden_dim]; model.config.layer_count];
         let mut hidden = Vec::new();
         for &token in input {
-            let mut x = super::project_embedding(
-                &super::embedding_row(&model.embedding.data, token, model.config.embedding_dim),
-                model.config.hidden_dim,
+            let embedding = super::embedding_row(
+                &model.embedding.data,
+                token,
+                model.config.embedding_dim,
             );
+            let mut x = model.project_input(&embedding).unwrap();
             for layer in 0..model.config.layer_count {
                 let cache = model.cells[layer].forward(&x, &memory[layer]);
                 memory[layer] = cache.new_memory;
