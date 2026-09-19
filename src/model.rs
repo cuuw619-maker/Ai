@@ -476,6 +476,33 @@ impl AiNet {
         self.parameter_snapshot().into_iter().map(|(name, _)| name).collect()
     }
 
+    pub fn parameters(&self) -> Vec<&Parameter> {
+        let mut result = Vec::with_capacity(self.config.layer_count * 11 + 3);
+        result.push(&self.embedding);
+        if let Some(p) = &self.input_projection_w {
+            result.push(p);
+        }
+        if let Some(p) = &self.input_projection_b {
+            result.push(p);
+        }
+        for cell in &self.cells {
+            let ps = [
+                &cell.w_keep, &cell.u_keep, &cell.b_keep,
+                &cell.w_write, &cell.u_write, &cell.b_write,
+                &cell.w_candidate, &cell.u_candidate, &cell.b_candidate,
+                &cell.w_out, &cell.b_out,
+            ];
+            result.extend(ps);
+        }
+        result.push(&self.output_w);
+        result.push(&self.output_b);
+        result
+    }
+
+    pub fn inference_logits(&mut self, token: usize) -> Result<Vec<f32>, String> {
+        self.inference_token(token)
+    }
+
     pub fn global_gradient_norm(&mut self) -> f32 {
         let mut sum = 0.0f64;
         let params = self.parameters_mut();
@@ -578,7 +605,7 @@ impl AiNet {
         Ok(logits)
     }
 
-    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), String> {
+    pub fn to_aimodel_bytes(&self) -> Result<Vec<u8>, String> {
         let payload = self.encode_payload_v2()?;
         let checksum = fnv1a64(&payload);
         let mut bytes = Vec::with_capacity(28 + payload.len());
@@ -587,17 +614,15 @@ impl AiNet {
         bytes.extend_from_slice(&checksum.to_le_bytes());
         bytes.extend_from_slice(&(payload.len() as u64).to_le_bytes());
         bytes.extend_from_slice(&payload);
-        atomic_save_with_previous(path.as_ref(), &bytes)?;
-        Ok(())
+        Ok(bytes)
     }
 
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
-        let bytes = fs::read(path).map_err(|e| format!("read model: {e}"))?;
+    pub fn from_aimodel_bytes(bytes: &[u8]) -> Result<Self, String> {
         if bytes.len() < 28 {
             return Err("invalid .aimodel header".into());
         }
         if &bytes[..8] == b"AIMDLv01" {
-            return Self::load_v1(&bytes);
+            return Self::load_v1(bytes);
         }
         if &bytes[..8] != b"AIMDLv02" {
             return Err("invalid .aimodel magic".into());
@@ -616,6 +641,17 @@ impl AiNet {
             return Err("model checksum mismatch".into());
         }
         Self::decode_payload_v2(payload)
+    }
+
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), String> {
+        let bytes = self.to_aimodel_bytes()?;
+        atomic_save_with_previous(path.as_ref(), &bytes)?;
+        Ok(())
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
+        let bytes = fs::read(path).map_err(|e| format!("read model: {e}"))?;
+        Self::from_aimodel_bytes(&bytes)
     }
 
     fn load_v1(bytes: &[u8]) -> Result<Self, String> {
