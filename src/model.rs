@@ -347,6 +347,25 @@ impl AiNet {
         target_tokens: &[usize],
         initial_memory: Option<&[Vec<f32>]>,
     ) -> Result<(f32, Vec<Vec<f32>>), String> {
+        self.train_step_core(input_tokens, target_tokens, initial_memory, true)
+    }
+
+    pub fn accumulate_train_step_with_state(
+        &mut self,
+        input_tokens: &[usize],
+        target_tokens: &[usize],
+        initial_memory: Option<&[Vec<f32>]>,
+    ) -> Result<(f32, Vec<Vec<f32>>), String> {
+        self.train_step_core(input_tokens, target_tokens, initial_memory, false)
+    }
+
+    fn train_step_core(
+        &mut self,
+        input_tokens: &[usize],
+        target_tokens: &[usize],
+        initial_memory: Option<&[Vec<f32>]>,
+        reset_gradients: bool,
+    ) -> Result<(f32, Vec<Vec<f32>>), String> {
         if input_tokens.is_empty() || input_tokens.len() != target_tokens.len() {
             return Err("input and target sequence lengths must match and be non-zero".into());
         }
@@ -359,7 +378,9 @@ impl AiNet {
             }
         }
 
-        self.zero_grad();
+        if reset_gradients {
+            self.zero_grad();
+        }
         let mut memory = initial_memory
             .map(|m| m.to_vec())
             .unwrap_or_else(|| vec![vec![0.0; self.config.hidden_dim]; self.config.layer_count]);
