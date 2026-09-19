@@ -8,7 +8,6 @@ use std::path::Path;
 pub struct Tokenizer {
     pub special_tokens: Vec<SpecialToken>,
     pub merges: Vec<Merge>,
-    pair_to_new: HashMap<(u32, u32), u32>,
     token_bytes: HashMap<u32, Vec<u8>>,
 }
 
@@ -21,7 +20,6 @@ impl Tokenizer {
         let mut tokenizer = Self {
             special_tokens,
             merges,
-            pair_to_new: HashMap::new(),
             token_bytes: HashMap::new(),
         };
         tokenizer.rebuild_and_validate()?;
@@ -152,7 +150,6 @@ impl Tokenizer {
 
     fn rebuild_and_validate(&mut self) -> Result<(), String> {
         self.validate()?;
-        self.pair_to_new.clear();
         self.token_bytes.clear();
 
         for id in 0..BYTE_VOCAB_SIZE {
@@ -167,7 +164,6 @@ impl Tokenizer {
             let mut combined = left;
             combined.extend_from_slice(&right);
             self.token_bytes.insert(merge.new_id, combined);
-            self.pair_to_new.insert((merge.left, merge.right), merge.new_id);
         }
         Ok(())
     }
