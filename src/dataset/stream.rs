@@ -102,7 +102,7 @@ impl TrainingStream {
             dataset_id: self.dataset_id.clone(),
             file_path: self.reader.path.to_string_lossy().into_owned(),
             file_offset: self.reader.current_offset()?,
-            sample_index: 0,
+            sample_index: self.reader.next_sample_index(),
             token_position: 0,
         })
     }
