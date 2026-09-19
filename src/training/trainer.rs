@@ -207,6 +207,7 @@ impl Trainer {
             data.config.clone(),
             data_root.as_ref().to_path_buf(),
             data.run_id.clone(),
+            data.dataset_id.clone(),
             data.cursor.clone(),
             true,
         )?;
@@ -439,7 +440,7 @@ impl Trainer {
                     TrainingStatus::Stopped
                 };
                 let _ = self.state.transition(TrainingStatus::Saving);
-                if self.save_checkpoint(events, target).is_ok() {
+                if self.save_checkpoint(events, target, &memory).is_ok() {
                     let _ = self.state.transition(target);
                     let _ = self.persist_status();
                     let _ = events.send(if target == TrainingStatus::Paused {
