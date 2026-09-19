@@ -112,6 +112,9 @@ impl Trainer {
         if estimate > budget {
             return Err(format!("estimated training RAM {} MB exceeds budget {} MB", estimate / 1024 / 1024, config.memory_budget_mb));
         }
+        let hidden_dim = model.config.hidden_dim;
+        let layer_count = model.config.layer_count;
+
         Ok(Self {
             model,
             tokenizer,
@@ -123,7 +126,7 @@ impl Trainer {
             config,
             state,
             run_dir,
-            memory_state: vec![vec![0.0; model.config.hidden_dim]; model.config.layer_count],
+            memory_state: vec![vec![0.0; hidden_dim]; layer_count],
             data_root,
         })
     }
