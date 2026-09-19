@@ -72,7 +72,7 @@ impl TokenizerTrainer {
                     *counts.entry((pair[0], pair[1])).or_default() += 1;
                 }
             }
-            let Some((&(left, right), &frequency)) = counts
+            let Some((&(left, right), &_frequency)) = counts
                 .iter()
                 .filter(|(_, freq)| **freq >= config.min_frequency)
                 .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
