@@ -337,6 +337,16 @@ impl AiNet {
         target_tokens: &[usize],
         initial_memory: Option<&[Vec<f32>]>,
     ) -> Result<f32, String> {
+        self.train_step_with_state(input_tokens, target_tokens, initial_memory)
+            .map(|(loss, _)| loss)
+    }
+
+    pub fn train_step_with_state(
+        &mut self,
+        input_tokens: &[usize],
+        target_tokens: &[usize],
+        initial_memory: Option<&[Vec<f32>]>,
+    ) -> Result<(f32, Vec<Vec<f32>>), String> {
         if input_tokens.is_empty() || input_tokens.len() != target_tokens.len() {
             return Err("input and target sequence lengths must match and be non-zero".into());
         }
@@ -445,7 +455,11 @@ impl AiNet {
             }
         }
 
-        Ok(loss * scale)
+        Ok((loss * scale, memory))
+    }
+
+    pub fn trainable_architecture(&self) -> &str {
+        &self.config.architecture
     }
 
     pub fn weights_checksum(&self) -> u64 {
