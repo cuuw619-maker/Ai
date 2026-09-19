@@ -22,6 +22,7 @@ pub struct CheckpointData {
     pub cursor: DatasetCursor,
     pub optimizer: AdamWState,
     pub random_state: u64,
+    pub memory_state: Vec<Vec<f32>>,
     pub model_bytes: Vec<u8>,
 }
 
@@ -38,6 +39,7 @@ impl Checkpoint {
         state: &TrainingState,
         config: &TrainingConfig,
         random_state: u64,
+        memory_state: &[Vec<f32>],
         timestamp_unix_ms: u64,
     ) -> Result<(), String> {
         let data = CheckpointData {
@@ -51,6 +53,7 @@ impl Checkpoint {
             cursor: state.cursor.clone(),
             optimizer: optimizer.clone(),
             random_state,
+            memory_state: memory_state.to_vec(),
             model_bytes: model.to_aimodel_bytes()?,
         };
         atomic_save(path, &encode(&data)?)
@@ -107,6 +110,13 @@ fn encode(data: &CheckpointData) -> Result<Vec<u8>, String> {
     w.u64(data.cursor.file_offset);
     w.u64(data.cursor.sample_index);
     w.u64(data.cursor.token_position);
+    w.u64(data.memory_state.len() as u64);
+    for layer in &data.memory_state {
+        w.u64(layer.len() as u64);
+        for value in layer {
+            w.f32(*value);
+        }
+    }
     write_config(&mut w, &data.config);
     w.u64(data.random_state);
     write_optimizer(&mut w, &data.optimizer);
@@ -152,6 +162,22 @@ fn decode_container(bytes: &[u8]) -> Result<CheckpointData, String> {
         sample_index: r.u64()?,
         token_position: r.u64()?,
     };
+    let memory_layers = r.u64()? as usize;
+    if memory_layers > 1024 {
+        return Err("checkpoint recurrent memory layer count is unreasonable".into());
+    }
+    let mut memory_state = Vec::with_capacity(memory_layers);
+    for _ in 0..memory_layers {
+        let len = r.u64()? as usize;
+        if len > 1_048_576 {
+            return Err("checkpoint recurrent memory vector is unreasonable".into());
+        }
+        let mut layer = Vec::with_capacity(len);
+        for _ in 0..len {
+            layer.push(r.f32()?);
+        }
+        memory_state.push(layer);
+    }
     let config = read_config(&mut r)?;
     let random_state = r.u64()?;
     let optimizer = read_optimizer(&mut r)?;
@@ -180,6 +206,7 @@ fn decode_container(bytes: &[u8]) -> Result<CheckpointData, String> {
         cursor,
         optimizer,
         random_state,
+        memory_state,
         model_bytes,
     })
 }
