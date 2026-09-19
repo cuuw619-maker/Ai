@@ -165,6 +165,12 @@ impl Trainer {
         trainer.state = data.state.clone();
         trainer.state.transition(TrainingStatus::Resuming)?;
         trainer.state.random_state = data.random_state;
+        if data.memory_state.len() != trainer.model.config.layer_count
+            || data.memory_state.iter().any(|layer| layer.len() != trainer.model.config.hidden_dim)
+        {
+            return Err("checkpoint recurrent memory shape does not match model".into());
+        }
+        trainer.memory_state = data.memory_state;
         trainer.optimizer.load_state(data.optimizer, trainer.model.parameters())?;
         Ok(trainer)
     }
@@ -223,7 +229,7 @@ impl Trainer {
             if matches!(self.state.status, TrainingStatus::Pausing | TrainingStatus::Stopping) && accumulation_count == 0 {
                 let target = if self.state.status == TrainingStatus::Pausing { TrainingStatus::Paused } else { TrainingStatus::Stopped };
                 let _ = self.state.transition(TrainingStatus::Saving);
-                if self.save_checkpoint(events, target).is_ok() {
+                if self.save_checkpoint(events, target, &memory).is_ok() {
                     let _ = self.state.transition(target);
                     let _ = self.persist_status();
                     let _ = events.send(if target == TrainingStatus::Paused { TrainingEvent::Paused } else { TrainingEvent::Stopped });
@@ -242,7 +248,7 @@ impl Trainer {
                         let _ = self.state.transition(TrainingStatus::Completed);
                         self.state.cursor = stream.cursor().unwrap_or_else(|_| self.state.cursor.clone());
                         let _ = self.persist_status();
-                        let _ = self.save_checkpoint(events, TrainingStatus::Completed);
+                        let _ = self.save_checkpoint(events, TrainingStatus::Completed, &memory);
                         let _ = events.send(TrainingEvent::Completed);
                         return;
                     }
@@ -302,7 +308,7 @@ impl Trainer {
 
             if self.state.step > 0 && self.state.step % self.config.checkpoint_interval_steps == 0 {
                 let _ = self.state.transition(TrainingStatus::Saving);
-                if self.save_checkpoint(events, TrainingStatus::Running).is_err() {
+                if self.save_checkpoint(events, TrainingStatus::Running, &memory).is_err() {
                     self.state.status = TrainingStatus::Failed;
                     let _ = self.persist_status();
                     return;
@@ -314,7 +320,7 @@ impl Trainer {
 
         let _ = self.state.transition(TrainingStatus::Completed);
         let _ = self.persist_status();
-        let _ = self.save_checkpoint(events, TrainingStatus::Completed);
+        let _ = self.save_checkpoint(events, TrainingStatus::Completed, &memory);
         let _ = events.send(TrainingEvent::Completed);
     }
 
@@ -359,7 +365,12 @@ impl Trainer {
         }
     }
 
-    fn save_checkpoint(&mut self, events: &Sender<TrainingEvent>, status_for_checkpoint: TrainingStatus) -> Result<(), String> {
+    fn save_checkpoint(
+        &mut self,
+        events: &Sender<TrainingEvent>,
+        status_for_checkpoint: TrainingStatus,
+        memory: &[Vec<f32>],
+    ) -> Result<(), String> {
         let mut state = self.state.clone();
         state.status = status_for_checkpoint;
         let optimizer_state = self.optimizer.export_state(self.model.parameters())?;
@@ -374,11 +385,13 @@ impl Trainer {
             &state,
             &self.config,
             self.state.random_state,
+            memory,
             now_ms(),
         )?;
         let numbered = self.run_dir.join(format!("checkpoints/checkpoint-{:09}.aicheckpoint", self.state.step));
         let bytes = fs::read(&latest).map_err(|e| format!("read latest checkpoint: {e}"))?;
         fs::write(&numbered, bytes).map_err(|e| format!("write numbered checkpoint: {e}"))?;
+        self.memory_state = memory.to_vec();
         let _ = events.send(TrainingEvent::CheckpointSaved(latest));
         Ok(())
     }
