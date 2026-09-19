@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   test-and-build:
     runs-on: windows-latest
@@ -19,6 +22,18 @@ jobs:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
           components: rustfmt, clippy
+
+      - name: Apply rustfmt
+        shell: pwsh
+        run: |
+          cargo fmt --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if (git status --porcelain) {
+            git add .
+            git commit -m "chore: apply rustfmt"
+            git push
+          }
 
       - name: Format check
         run: cargo fmt --check
