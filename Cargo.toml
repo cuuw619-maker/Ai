@@ -1,0 +1,13 @@
+[package]
+name = "ai"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "AiNet v1: a from-scratch recurrent neural network implemented in Rust."
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[dependencies]
