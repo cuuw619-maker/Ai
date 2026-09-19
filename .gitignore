@@ -1,0 +1,9 @@
+/target/
+*.aimodel
+*.aimodel.tmp
+/data/models/*
+/data/checkpoints/*
+/data/datasets/*
+/data/runs/*
+/data/logs/*
+!data/.gitkeep
