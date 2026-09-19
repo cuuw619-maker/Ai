@@ -49,6 +49,10 @@ impl DatasetReader {
         self.reader.stream_position().map_err(|e| format!("dataset position: {e}"))
     }
 
+    pub fn next_sample_index(&self) -> u64 {
+        self.next_sample_index
+    }
+
     pub fn next_sample(&mut self) -> AiResult<Option<RawSample>> {
         let offset = self.current_offset().map_err(AiError::Dataset)?;
         let mut line = String::new();
