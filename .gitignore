@@ -4,6 +4,7 @@
 *.aimodel.prev
 *.aitok
 *.aitok.tmp
+*.aitok.prev
 *.aicheckpoint
 *.aicheckpoint.tmp
 *.aicheckpoint.prev
