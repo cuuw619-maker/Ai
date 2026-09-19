@@ -2,7 +2,9 @@ use ai::dataset::{dataset_metadata, validate, DatasetFormat};
 use ai::inference::{GenerationConfig, InferenceEngine};
 use ai::model::{AiNet, ModelConfig};
 use ai::tokenizer::{Tokenizer, TokenizerTrainer, TokenizerTrainerConfig};
-use ai::training::{Checkpoint, TrainingCommand, TrainingConfig, TrainingEvent, Trainer, TrainingWorker};
+use ai::training::{
+    Checkpoint, Trainer, TrainingCommand, TrainingConfig, TrainingEvent, TrainingWorker,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -31,7 +33,8 @@ fn run() -> Result<(), String> {
 }
 
 fn print_help() -> Result<(), String> {
-    println!(r#"Ai / AiNet v1
+    println!(
+        r#"Ai / AiNet v1
 Own neural engine, own tokenizer, own model/checkpoint formats.
 
 Commands:
@@ -48,7 +51,8 @@ Commands:
   checkpoint list [--run run-000001]
   generate --model PATH --tokenizer PATH --prompt TEXT [--tokens N] [--temperature F] [--top-k N] [--top-p F] [--greedy]
   benchmark
-"#);
+"#
+    );
     Ok(())
 }
 
@@ -113,18 +117,24 @@ fn dataset_command(args: &[String]) -> Result<(), String> {
         Some("validate") => {
             let path = required(args, "--dataset")?;
             let format = dataset_format(args, Path::new(path))?;
-            let tokenizer = optional(args, "--tokenizer").map(|p| Tokenizer::load(Path::new(p))).transpose()?;
+            let tokenizer = optional(args, "--tokenizer")
+                .map(|p| Tokenizer::load(Path::new(p)))
+                .transpose()?;
             let report = validate(Path::new(path), format.clone(), tokenizer.as_ref())?;
             let metadata = dataset_metadata(Path::new(path), format)?;
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                "dataset_id": metadata.dataset_id,
-                "samples": report.samples,
-                "errors": report.errors,
-                "empty_samples": report.empty_samples,
-                "bytes": report.bytes,
-                "estimated_tokens": report.estimated_tokens,
-                "content_hash": metadata.content_hash
-            })).map_err(|e| e.to_string())?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "dataset_id": metadata.dataset_id,
+                    "samples": report.samples,
+                    "errors": report.errors,
+                    "empty_samples": report.empty_samples,
+                    "bytes": report.bytes,
+                    "estimated_tokens": report.estimated_tokens,
+                    "content_hash": metadata.content_hash
+                }))
+                .map_err(|e| e.to_string())?
+            );
             Ok(())
         }
         _ => Err("usage: Ai.exe dataset validate ...".into()),
@@ -137,12 +147,21 @@ fn train_command(args: &[String]) -> Result<(), String> {
         Some("stop") => write_control("stop"),
         Some("status") => {
             let path = Path::new("data/training-status.json");
-            if !path.exists() { return Err("no training status found".into()); }
-            println!("{}", fs::read_to_string(path).map_err(|e| format!("read status: {e}"))?);
+            if !path.exists() {
+                return Err("no training status found".into());
+            }
+            println!(
+                "{}",
+                fs::read_to_string(path).map_err(|e| format!("read status: {e}"))?
+            );
             Ok(())
         }
         Some("resume") => {
-            let checkpoint = required_path(args, "--checkpoint", "data/checkpoints/checkpoint-latest.aicheckpoint");
+            let checkpoint = required_path(
+                args,
+                "--checkpoint",
+                "data/checkpoints/checkpoint-latest.aicheckpoint",
+            );
             let tokenizer = Tokenizer::load(Path::new(required(args, "--tokenizer")?))?;
             let dataset = required(args, "--dataset")?;
             let format = dataset_format(args, Path::new(dataset))?;
@@ -154,7 +173,8 @@ fn train_command(args: &[String]) -> Result<(), String> {
                 Path::new("data"),
             )?;
             remove_control();
-            let mut worker = TrainingWorker::spawn(trainer, Some(PathBuf::from("data/training.command")));
+            let mut worker =
+                TrainingWorker::spawn(trainer, Some(PathBuf::from("data/training.command")));
             worker.send(TrainingCommand::Resume)?;
             drain_worker(&mut worker);
             worker.join();
@@ -168,19 +188,29 @@ fn train_command(args: &[String]) -> Result<(), String> {
             let mut config = TrainingConfig::low_end();
             config.epochs = parse_u64(args, "--epochs", config.epochs)?;
             config.sequence_length = parse_usize(args, "--sequence", config.sequence_length)?;
-            config.gradient_accumulation = parse_usize(args, "--accumulation", config.gradient_accumulation)?;
+            config.gradient_accumulation =
+                parse_usize(args, "--accumulation", config.gradient_accumulation)?;
             config.learning_rate = parse_f32(args, "--lr", config.learning_rate)?;
             config.weight_decay = parse_f32(args, "--weight-decay", config.weight_decay)?;
             config.max_grad_norm = parse_f32(args, "--max-grad-norm", config.max_grad_norm)?;
-            config.checkpoint_interval_steps = parse_u64(args, "--checkpoint-steps", config.checkpoint_interval_steps)?;
+            config.checkpoint_interval_steps =
+                parse_u64(args, "--checkpoint-steps", config.checkpoint_interval_steps)?;
             config.memory_budget_mb = parse_usize(args, "--memory-mb", config.memory_budget_mb)?;
             config.max_cpu_threads = parse_usize(args, "--max-threads", config.max_cpu_threads)?;
             config.continuous = has_flag(args, "--continuous");
-            config.max_steps = optional(args, "--steps").map(str::parse).transpose().map_err(|e| format!("invalid --steps: {e}"))?;
+            config.max_steps = optional(args, "--steps")
+                .map(str::parse)
+                .transpose()
+                .map_err(|e| format!("invalid --steps: {e}"))?;
             remove_control();
-            let trainer = Trainer::new(model, tokenizer, dataset, format, config, Path::new("data"))?;
-            println!("estimated_training_mb={}", trainer.model_memory_estimate_bytes() / 1024 / 1024);
-            let mut worker = TrainingWorker::spawn(trainer, Some(PathBuf::from("data/training.command")));
+            let trainer =
+                Trainer::new(model, tokenizer, dataset, format, config, Path::new("data"))?;
+            println!(
+                "estimated_training_mb={}",
+                trainer.model_memory_estimate_bytes() / 1024 / 1024
+            );
+            let mut worker =
+                TrainingWorker::spawn(trainer, Some(PathBuf::from("data/training.command")));
             worker.send(TrainingCommand::Start)?;
             drain_worker(&mut worker);
             worker.join();
@@ -218,7 +248,10 @@ fn checkpoint_command(args: &[String]) -> Result<(), String> {
             };
             if dir.ends_with("runs") {
                 for entry in fs::read_dir(dir).map_err(|e| format!("read runs: {e}"))? {
-                    let path = entry.map_err(|e| format!("read run: {e}"))?.path().join("checkpoints");
+                    let path = entry
+                        .map_err(|e| format!("read run: {e}"))?
+                        .path()
+                        .join("checkpoints");
                     for checkpoint in Checkpoint::list(&path)? {
                         println!("{}", checkpoint.display());
                     }
@@ -246,7 +279,12 @@ fn generate_command(args: &[String]) -> Result<(), String> {
         top_p: parse_f32(args, "--top-p", 0.9)?,
         greedy: has_flag(args, "--greedy"),
     };
-    let ids = engine.generate(prompt, &tokenizer, parse_usize(args, "--tokens", 32)?, &config)?;
+    let ids = engine.generate(
+        prompt,
+        &tokenizer,
+        parse_usize(args, "--tokens", 32)?,
+        &config,
+    )?;
     println!("{}", tokenizer.decode(&ids)?);
     Ok(())
 }
@@ -275,7 +313,9 @@ fn benchmark_command() -> Result<(), String> {
     let text = "Привет, hello, 123, 🙂";
     let started = Instant::now();
     let mut total = 0usize;
-    for _ in 0..1000 { total += tokenizer.encode(text).len(); }
+    for _ in 0..1000 {
+        total += tokenizer.encode(text).len();
+    }
     let elapsed = started.elapsed().as_secs_f64().max(1e-9);
     println!("tokenizer_tokens_per_second={:.3}", total as f64 / elapsed);
     Ok(())
@@ -283,43 +323,66 @@ fn benchmark_command() -> Result<(), String> {
 
 fn write_control(command: &str) -> Result<(), String> {
     fs::create_dir_all("data").map_err(|e| format!("create data directory: {e}"))?;
-    fs::write("data/training.command", command).map_err(|e| format!("write training command: {e}"))?;
+    fs::write("data/training.command", command)
+        .map_err(|e| format!("write training command: {e}"))?;
     println!("command={command}");
     Ok(())
 }
 
-fn remove_control() { let _ = fs::remove_file("data/training.command"); }
+fn remove_control() {
+    let _ = fs::remove_file("data/training.command");
+}
 
 fn required<'a>(args: &'a [String], key: &str) -> Result<&'a str, String> {
     optional(args, key).ok_or_else(|| format!("missing {key}"))
 }
 
 fn optional<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
-    args.windows(2).find(|pair| pair[0] == key).map(|pair| pair[1].as_str())
+    args.windows(2)
+        .find(|pair| pair[0] == key)
+        .map(|pair| pair[1].as_str())
 }
 
 fn required_path(args: &[String], key: &str, default: &str) -> PathBuf {
-    optional(args, key).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(default))
+    optional(args, key)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(default))
 }
 
 fn parse_usize(args: &[String], key: &str, default: usize) -> Result<usize, String> {
-    optional(args, key).map(str::parse).transpose().map_err(|e| format!("invalid {key}: {e}")).map(|v| v.unwrap_or(default))
+    optional(args, key)
+        .map(str::parse)
+        .transpose()
+        .map_err(|e| format!("invalid {key}: {e}"))
+        .map(|v| v.unwrap_or(default))
 }
 
 fn parse_u64(args: &[String], key: &str, default: u64) -> Result<u64, String> {
-    optional(args, key).map(str::parse).transpose().map_err(|e| format!("invalid {key}: {e}")).map(|v| v.unwrap_or(default))
+    optional(args, key)
+        .map(str::parse)
+        .transpose()
+        .map_err(|e| format!("invalid {key}: {e}"))
+        .map(|v| v.unwrap_or(default))
 }
 
 fn parse_f32(args: &[String], key: &str, default: f32) -> Result<f32, String> {
-    optional(args, key).map(str::parse).transpose().map_err(|e| format!("invalid {key}: {e}")).map(|v| v.unwrap_or(default))
+    optional(args, key)
+        .map(str::parse)
+        .transpose()
+        .map_err(|e| format!("invalid {key}: {e}"))
+        .map(|v| v.unwrap_or(default))
 }
 
-fn has_flag(args: &[String], key: &str) -> bool { args.iter().any(|arg| arg == key) }
+fn has_flag(args: &[String], key: &str) -> bool {
+    args.iter().any(|arg| arg == key)
+}
 
 fn dataset_format(args: &[String], path: &Path) -> Result<DatasetFormat, String> {
-    optional(args, "--format").map(|value| match value.to_ascii_lowercase().as_str() {
-        "txt" => Ok(DatasetFormat::Txt),
-        "jsonl" => Ok(DatasetFormat::Jsonl),
-        _ => Err(format!("unsupported dataset format: {value}")),
-    }).unwrap_or_else(|| DatasetFormat::from_path(path))
+    optional(args, "--format")
+        .map(|value| match value.to_ascii_lowercase().as_str() {
+            "txt" => Ok(DatasetFormat::Txt),
+            "jsonl" => Ok(DatasetFormat::Jsonl),
+            _ => Err(format!("unsupported dataset format: {value}")),
+        })
+        .unwrap_or_else(|| DatasetFormat::from_path(path))
 }

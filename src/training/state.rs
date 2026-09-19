@@ -60,7 +60,10 @@ pub struct TrainingState {
 impl TrainingState {
     pub fn transition(&mut self, next: TrainingStatus) -> Result<(), String> {
         if !self.status.can_transition_to(next) {
-            return Err(format!("invalid training state transition {:?} -> {:?}", self.status, next));
+            return Err(format!(
+                "invalid training state transition {:?} -> {:?}",
+                self.status, next
+            ));
         }
         self.status = next;
         Ok(())

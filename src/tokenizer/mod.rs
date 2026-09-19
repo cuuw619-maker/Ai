@@ -1,7 +1,7 @@
 mod format;
 mod merge;
-mod trainer;
 mod tokenizer;
+mod trainer;
 mod vocab;
 
 pub use merge::Merge;

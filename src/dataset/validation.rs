@@ -24,17 +24,31 @@ pub struct ValidationReport {
     pub estimated_tokens: Option<u64>,
 }
 
-pub fn validate(path: &Path, format: DatasetFormat, tokenizer: Option<&Tokenizer>) -> Result<ValidationReport, String> {
+pub fn validate(
+    path: &Path,
+    format: DatasetFormat,
+    tokenizer: Option<&Tokenizer>,
+) -> Result<ValidationReport, String> {
     let mut reader = DatasetReader::open(path, format)?;
-    let mut report = ValidationReport { samples: 0, errors: 0, empty_samples: 0, bytes: 0, estimated_tokens: tokenizer.map(|_| 0) };
+    let mut report = ValidationReport {
+        samples: 0,
+        errors: 0,
+        empty_samples: 0,
+        bytes: 0,
+        estimated_tokens: tokenizer.map(|_| 0),
+    };
     loop {
         match reader.next_sample() {
             Ok(Some(sample)) => {
                 report.samples += 1;
                 report.bytes += sample.text.len() as u64;
-                if sample.text.trim().is_empty() { report.empty_samples += 1; }
+                if sample.text.trim().is_empty() {
+                    report.empty_samples += 1;
+                }
                 if let Some(tokenizer) = tokenizer {
-                    report.estimated_tokens = report.estimated_tokens.map(|n| n + tokenizer.encode(&sample.text).len() as u64);
+                    report.estimated_tokens = report
+                        .estimated_tokens
+                        .map(|n| n + tokenizer.encode(&sample.text).len() as u64);
                 }
             }
             Ok(None) => break,
@@ -46,17 +60,24 @@ pub fn validate(path: &Path, format: DatasetFormat, tokenizer: Option<&Tokenizer
 
 pub fn dataset_metadata(path: &Path, format: DatasetFormat) -> Result<DatasetMetadata, String> {
     let meta = fs::metadata(path).map_err(|e| format!("dataset metadata: {e}"))?;
-    let modified_unix_ms = meta.modified().ok()
+    let modified_unix_ms = meta
+        .modified()
+        .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_millis())
         .unwrap_or(0);
 
-    let mut reader = BufReader::new(File::open(path).map_err(|e| format!("open dataset for hashing: {e}"))?);
+    let mut reader =
+        BufReader::new(File::open(path).map_err(|e| format!("open dataset for hashing: {e}"))?);
     let mut buf = [0u8; 64 * 1024];
     let mut hash = 0xcbf29ce484222325u64;
     loop {
-        let n = reader.read(&mut buf).map_err(|e| format!("read dataset for hash: {e}"))?;
-        if n == 0 { break; }
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| format!("read dataset for hash: {e}"))?;
+        if n == 0 {
+            break;
+        }
         for byte in &buf[..n] {
             hash ^= *byte as u64;
             hash = hash.wrapping_mul(0x100000001b3);

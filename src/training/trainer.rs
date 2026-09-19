@@ -2,7 +2,9 @@ use super::checkpoint::Checkpoint;
 use super::config::TrainingConfig;
 use super::events::{TrainingCommand, TrainingEvent, TrainingProgress};
 use super::state::{TrainingState, TrainingStatus};
-use crate::dataset::{dataset_metadata, DatasetCursor, DatasetFormat, DatasetReader, TrainingStream};
+use crate::dataset::{
+    dataset_metadata, DatasetCursor, DatasetFormat, DatasetReader, TrainingStream,
+};
 use crate::model::AiNet;
 use crate::optimizer::AdamW;
 use crate::tokenizer::Tokenizer;
@@ -17,8 +19,15 @@ pub fn next_run_id(data_root: &Path) -> Result<String, String> {
     fs::create_dir_all(&runs).map_err(|e| format!("create runs directory: {e}"))?;
     let mut max_id = 0u64;
     for entry in fs::read_dir(&runs).map_err(|e| format!("read runs directory: {e}"))? {
-        let name = entry.map_err(|e| format!("read run entry: {e}"))?.file_name().to_string_lossy().into_owned();
-        if let Some(value) = name.strip_prefix("run-").and_then(|v| v.parse::<u64>().ok()) {
+        let name = entry
+            .map_err(|e| format!("read run entry: {e}"))?
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        if let Some(value) = name
+            .strip_prefix("run-")
+            .and_then(|v| v.parse::<u64>().ok())
+        {
             max_id = max_id.max(value);
         }
     }
@@ -51,7 +60,11 @@ impl Trainer {
     ) -> Result<Self, String> {
         config.validate()?;
         if model.config.vocab_size != tokenizer.vocab_size() {
-            return Err(format!("model vocab {} != tokenizer vocab {}", model.config.vocab_size, tokenizer.vocab_size()));
+            return Err(format!(
+                "model vocab {} != tokenizer vocab {}",
+                model.config.vocab_size,
+                tokenizer.vocab_size()
+            ));
         }
         if config.sequence_length > model.config.sequence_length {
             return Err("training sequence length exceeds model sequence_length".into());
@@ -60,7 +73,18 @@ impl Trainer {
         let data_root = data_root.as_ref().to_path_buf();
         let meta = dataset_metadata(&dataset_path, dataset_format.clone())?;
         let run = next_run_id(&data_root)?;
-        Self::build(model, tokenizer, dataset_path, dataset_format, config, data_root, run, meta.dataset_id, None, false)
+        Self::build(
+            model,
+            tokenizer,
+            dataset_path,
+            dataset_format,
+            config,
+            data_root,
+            run,
+            meta.dataset_id,
+            None,
+            false,
+        )
     }
 
     fn build(
@@ -78,16 +102,32 @@ impl Trainer {
         config.validate()?;
         let tokenizer_id = tokenizer.tokenizer_id();
         if model.config.vocab_size != tokenizer.vocab_size() {
-            return Err(format!("model vocab {} != tokenizer vocab {}", model.config.vocab_size, tokenizer.vocab_size()));
+            return Err(format!(
+                "model vocab {} != tokenizer vocab {}",
+                model.config.vocab_size,
+                tokenizer.vocab_size()
+            ));
         }
         let run_dir = data_root.join("runs").join(&run);
-        fs::create_dir_all(run_dir.join("checkpoints")).map_err(|e| format!("create run directory: {e}"))?;
+        fs::create_dir_all(run_dir.join("checkpoints"))
+            .map_err(|e| format!("create run directory: {e}"))?;
         let reader = DatasetReader::open(&dataset_path, dataset_format.clone())?;
         let stream_cursor = cursor.clone();
         let _stream = if let Some(c) = &stream_cursor {
-            TrainingStream::resume(reader, tokenizer.clone(), config.sequence_length, dataset_id.clone(), c)?
+            TrainingStream::resume(
+                reader,
+                tokenizer.clone(),
+                config.sequence_length,
+                dataset_id.clone(),
+                c,
+            )?
         } else {
-            TrainingStream::new(reader, tokenizer.clone(), config.sequence_length, dataset_id.clone())?
+            TrainingStream::new(
+                reader,
+                tokenizer.clone(),
+                config.sequence_length,
+                dataset_id.clone(),
+            )?
         };
         let initial_cursor = cursor.unwrap_or_else(|| DatasetCursor {
             dataset_id: dataset_id.clone(),
@@ -97,7 +137,11 @@ impl Trainer {
             token_position: 0,
         });
         let state = TrainingState {
-            status: if resuming { TrainingStatus::Resuming } else { TrainingStatus::Idle },
+            status: if resuming {
+                TrainingStatus::Resuming
+            } else {
+                TrainingStatus::Idle
+            },
             run_id: run.clone(),
             epoch: 0,
             step: 0,
@@ -110,7 +154,11 @@ impl Trainer {
         let estimate = model.estimated_training_bytes(config.sequence_length);
         let budget = config.memory_budget_mb.saturating_mul(1024 * 1024);
         if estimate > budget {
-            return Err(format!("estimated training RAM {} MB exceeds budget {} MB", estimate / 1024 / 1024, config.memory_budget_mb));
+            return Err(format!(
+                "estimated training RAM {} MB exceeds budget {} MB",
+                estimate / 1024 / 1024,
+                config.memory_budget_mb
+            ));
         }
         let hidden_dim = model.config.hidden_dim;
         let layer_count = model.config.layer_count;
@@ -166,12 +214,17 @@ impl Trainer {
         trainer.state.transition(TrainingStatus::Resuming)?;
         trainer.state.random_state = data.random_state;
         if data.memory_state.len() != trainer.model.config.layer_count
-            || data.memory_state.iter().any(|layer| layer.len() != trainer.model.config.hidden_dim)
+            || data
+                .memory_state
+                .iter()
+                .any(|layer| layer.len() != trainer.model.config.hidden_dim)
         {
             return Err("checkpoint recurrent memory shape does not match model".into());
         }
         trainer.memory_state = data.memory_state;
-        trainer.optimizer.load_state(data.optimizer, trainer.model.parameters())?;
+        trainer
+            .optimizer
+            .load_state(data.optimizer, trainer.model.parameters())?;
         Ok(trainer)
     }
 
@@ -191,7 +244,10 @@ impl Trainer {
         } else if self.state.status == TrainingStatus::Resuming {
             let _ = self.state.transition(TrainingStatus::Running);
         }
-        if let Err(e) = self.write_run_metadata().and_then(|_| self.persist_status()) {
+        if let Err(e) = self
+            .write_run_metadata()
+            .and_then(|_| self.persist_status())
+        {
             let _ = events.send(TrainingEvent::Failed(e));
             return;
         }
@@ -199,15 +255,36 @@ impl Trainer {
 
         let reader = match DatasetReader::open(&self.dataset_path, self.dataset_format.clone()) {
             Ok(v) => v,
-            Err(e) => { let _ = events.send(TrainingEvent::Failed(e)); return; }
+            Err(e) => {
+                let _ = events.send(TrainingEvent::Failed(e));
+                return;
+            }
         };
-        let mut stream = match if self.state.step == 0 && self.state.cursor.file_offset == 0 && self.state.cursor.sample_index == 0 && self.state.cursor.token_position == 0 {
-            TrainingStream::new(reader, self.tokenizer.clone(), self.config.sequence_length, self.dataset_id.clone())
+        let mut stream = match if self.state.step == 0
+            && self.state.cursor.file_offset == 0
+            && self.state.cursor.sample_index == 0
+            && self.state.cursor.token_position == 0
+        {
+            TrainingStream::new(
+                reader,
+                self.tokenizer.clone(),
+                self.config.sequence_length,
+                self.dataset_id.clone(),
+            )
         } else {
-            TrainingStream::resume(reader, self.tokenizer.clone(), self.config.sequence_length, self.dataset_id.clone(), &self.state.cursor)
+            TrainingStream::resume(
+                reader,
+                self.tokenizer.clone(),
+                self.config.sequence_length,
+                self.dataset_id.clone(),
+                &self.state.cursor,
+            )
         } {
             Ok(v) => v,
-            Err(e) => { let _ = events.send(TrainingEvent::Failed(e)); return; }
+            Err(e) => {
+                let _ = events.send(TrainingEvent::Failed(e));
+                return;
+            }
         };
 
         let mut accumulated_loss = 0.0f64;
@@ -216,7 +293,11 @@ impl Trainer {
         let started = now_ms();
 
         loop {
-            if self.config.max_steps.is_some_and(|limit| self.state.step >= limit) {
+            if self
+                .config
+                .max_steps
+                .is_some_and(|limit| self.state.step >= limit)
+            {
                 break;
             }
             let (pause, stop) = poll_commands(commands, control_file);
@@ -226,13 +307,25 @@ impl Trainer {
                 let _ = self.state.transition(TrainingStatus::Pausing);
             }
 
-            if matches!(self.state.status, TrainingStatus::Pausing | TrainingStatus::Stopping) && accumulation_count == 0 {
-                let target = if self.state.status == TrainingStatus::Pausing { TrainingStatus::Paused } else { TrainingStatus::Stopped };
+            if matches!(
+                self.state.status,
+                TrainingStatus::Pausing | TrainingStatus::Stopping
+            ) && accumulation_count == 0
+            {
+                let target = if self.state.status == TrainingStatus::Pausing {
+                    TrainingStatus::Paused
+                } else {
+                    TrainingStatus::Stopped
+                };
                 let _ = self.state.transition(TrainingStatus::Saving);
                 if self.save_checkpoint(events, target, &memory).is_ok() {
                     let _ = self.state.transition(target);
                     let _ = self.persist_status();
-                    let _ = events.send(if target == TrainingStatus::Paused { TrainingEvent::Paused } else { TrainingEvent::Stopped });
+                    let _ = events.send(if target == TrainingStatus::Paused {
+                        TrainingEvent::Paused
+                    } else {
+                        TrainingEvent::Stopped
+                    });
                 }
                 return;
             }
@@ -241,26 +334,49 @@ impl Trainer {
                 Ok(Some(v)) => v,
                 Ok(None) => {
                     if accumulation_count > 0 {
-                        self.apply_accumulation(&mut accumulation_count, &mut accumulated_loss, events, started);
+                        self.apply_accumulation(
+                            &mut accumulation_count,
+                            &mut accumulated_loss,
+                            events,
+                            started,
+                        );
                     }
                     self.state.epoch += 1;
                     if !self.config.continuous && self.state.epoch >= self.config.epochs {
                         let _ = self.state.transition(TrainingStatus::Completed);
-                        self.state.cursor = stream.cursor().unwrap_or_else(|_| self.state.cursor.clone());
+                        self.state.cursor = stream
+                            .cursor()
+                            .unwrap_or_else(|_| self.state.cursor.clone());
                         let _ = self.persist_status();
                         let _ = self.save_checkpoint(events, TrainingStatus::Completed, &memory);
                         let _ = events.send(TrainingEvent::Completed);
                         return;
                     }
                     self.state.tokens_this_epoch = 0;
-                    for layer in &mut memory { layer.fill(0.0); }
-                    let reset_reader = match DatasetReader::open(&self.dataset_path, self.dataset_format.clone()) {
+                    for layer in &mut memory {
+                        layer.fill(0.0);
+                    }
+                    let reset_reader = match DatasetReader::open(
+                        &self.dataset_path,
+                        self.dataset_format.clone(),
+                    ) {
                         Ok(v) => v,
-                        Err(e) => { let _ = events.send(TrainingEvent::Failed(e)); return; }
+                        Err(e) => {
+                            let _ = events.send(TrainingEvent::Failed(e));
+                            return;
+                        }
                     };
-                    stream = match TrainingStream::new(reset_reader, self.tokenizer.clone(), self.config.sequence_length, self.dataset_id.clone()) {
+                    stream = match TrainingStream::new(
+                        reset_reader,
+                        self.tokenizer.clone(),
+                        self.config.sequence_length,
+                        self.dataset_id.clone(),
+                    ) {
                         Ok(v) => v,
-                        Err(e) => { let _ = events.send(TrainingEvent::Failed(e)); return; }
+                        Err(e) => {
+                            let _ = events.send(TrainingEvent::Failed(e));
+                            return;
+                        }
                     };
                     self.state.cursor = match stream.cursor() {
                         Ok(c) => c,
@@ -268,13 +384,21 @@ impl Trainer {
                     };
                     continue;
                 }
-                Err(e) => { let _ = events.send(TrainingEvent::Failed(e)); return; }
+                Err(e) => {
+                    let _ = events.send(TrainingEvent::Failed(e));
+                    return;
+                }
             };
 
             let result = if accumulation_count == 0 {
-                self.model.train_step_with_state(&sequence.input, &sequence.target, Some(&memory))
+                self.model
+                    .train_step_with_state(&sequence.input, &sequence.target, Some(&memory))
             } else {
-                self.model.accumulate_train_step_with_state(&sequence.input, &sequence.target, Some(&memory))
+                self.model.accumulate_train_step_with_state(
+                    &sequence.input,
+                    &sequence.target,
+                    Some(&memory),
+                )
             };
             match result {
                 Ok((loss, next_memory)) => {
@@ -286,29 +410,53 @@ impl Trainer {
                     self.state.tokens_this_epoch += sequence.input.len() as u64;
                     self.state.cursor = sequence.cursor_after;
                 }
-                Err(e) => { let _ = events.send(TrainingEvent::Failed(e)); return; }
+                Err(e) => {
+                    let _ = events.send(TrainingEvent::Failed(e));
+                    return;
+                }
             }
 
             if accumulation_count >= self.config.gradient_accumulation
-                || matches!(self.state.status, TrainingStatus::Pausing | TrainingStatus::Stopping)
+                || matches!(
+                    self.state.status,
+                    TrainingStatus::Pausing | TrainingStatus::Stopping
+                )
             {
-                self.apply_accumulation(&mut accumulation_count, &mut accumulated_loss, events, started);
+                self.apply_accumulation(
+                    &mut accumulation_count,
+                    &mut accumulated_loss,
+                    events,
+                    started,
+                );
             }
 
-            if self.state.status == TrainingStatus::Pausing || self.state.status == TrainingStatus::Stopping {
-                let target = if self.state.status == TrainingStatus::Pausing { TrainingStatus::Paused } else { TrainingStatus::Stopped };
+            if self.state.status == TrainingStatus::Pausing
+                || self.state.status == TrainingStatus::Stopping
+            {
+                let target = if self.state.status == TrainingStatus::Pausing {
+                    TrainingStatus::Paused
+                } else {
+                    TrainingStatus::Stopped
+                };
                 let _ = self.state.transition(TrainingStatus::Saving);
                 if self.save_checkpoint(events, target).is_ok() {
                     let _ = self.state.transition(target);
                     let _ = self.persist_status();
-                    let _ = events.send(if target == TrainingStatus::Paused { TrainingEvent::Paused } else { TrainingEvent::Stopped });
+                    let _ = events.send(if target == TrainingStatus::Paused {
+                        TrainingEvent::Paused
+                    } else {
+                        TrainingEvent::Stopped
+                    });
                 }
                 return;
             }
 
             if self.state.step > 0 && self.state.step % self.config.checkpoint_interval_steps == 0 {
                 let _ = self.state.transition(TrainingStatus::Saving);
-                if self.save_checkpoint(events, TrainingStatus::Running, &memory).is_err() {
+                if self
+                    .save_checkpoint(events, TrainingStatus::Running, &memory)
+                    .is_err()
+                {
                     self.state.status = TrainingStatus::Failed;
                     let _ = self.persist_status();
                     return;
@@ -331,7 +479,9 @@ impl Trainer {
         events: &Sender<TrainingEvent>,
         started: u64,
     ) {
-        if *accumulation_count == 0 { return; }
+        if *accumulation_count == 0 {
+            return;
+        }
         let scale = 1.0 / *accumulation_count as f32;
         self.model.scale_gradients(scale);
         let (norm, clipped) = self.model.clip_grad_norm(self.config.max_grad_norm);
@@ -348,7 +498,13 @@ impl Trainer {
         let _ = self.persist_status();
     }
 
-    fn progress(&mut self, loss: f32, tps: f64, gradient_norm: f32, clipped: bool) -> TrainingProgress {
+    fn progress(
+        &mut self,
+        loss: f32,
+        tps: f64,
+        gradient_norm: f32,
+        clipped: bool,
+    ) -> TrainingProgress {
         TrainingProgress {
             run_id: self.state.run_id.clone(),
             status: self.state.status,
@@ -374,7 +530,9 @@ impl Trainer {
         let mut state = self.state.clone();
         state.status = status_for_checkpoint;
         let optimizer_state = self.optimizer.export_state(self.model.parameters())?;
-        let latest = self.run_dir.join("checkpoints/checkpoint-latest.aicheckpoint");
+        let latest = self
+            .run_dir
+            .join("checkpoints/checkpoint-latest.aicheckpoint");
         Checkpoint::save_latest(
             &latest,
             &self.state.run_id,
@@ -388,7 +546,10 @@ impl Trainer {
             memory,
             now_ms(),
         )?;
-        let numbered = self.run_dir.join(format!("checkpoints/checkpoint-{:09}.aicheckpoint", self.state.step));
+        let numbered = self.run_dir.join(format!(
+            "checkpoints/checkpoint-{:09}.aicheckpoint",
+            self.state.step
+        ));
         let bytes = fs::read(&latest).map_err(|e| format!("read latest checkpoint: {e}"))?;
         fs::write(&numbered, bytes).map_err(|e| format!("write numbered checkpoint: {e}"))?;
         self.memory_state = memory.to_vec();
@@ -399,7 +560,8 @@ impl Trainer {
     fn write_run_metadata(&self) -> Result<(), String> {
         fs::create_dir_all(&self.run_dir).map_err(|e| format!("create run dir: {e}"))?;
         let config = serde_json::to_vec_pretty(&self.config).map_err(|e| e.to_string())?;
-        fs::write(self.run_dir.join("config.json"), config).map_err(|e| format!("write config: {e}"))?;
+        fs::write(self.run_dir.join("config.json"), config)
+            .map_err(|e| format!("write config: {e}"))?;
         let dataset = serde_json::json!({
             "dataset_id": self.dataset_id,
             "path": self.dataset_path,
@@ -411,20 +573,26 @@ impl Trainer {
             "estimated_training_bytes": self.model.estimated_training_bytes(self.config.sequence_length),
         });
         let bytes = serde_json::to_vec_pretty(&dataset).map_err(|e| e.to_string())?;
-        fs::write(self.run_dir.join("metadata.json"), bytes).map_err(|e| format!("write metadata: {e}"))?;
+        fs::write(self.run_dir.join("metadata.json"), bytes)
+            .map_err(|e| format!("write metadata: {e}"))?;
         Ok(())
     }
 
     fn persist_status(&self) -> Result<(), String> {
         let json = serde_json::to_vec_pretty(&self.state).map_err(|e| e.to_string())?;
-        fs::write(self.run_dir.join("state.json"), &json).map_err(|e| format!("write run state: {e}"))?;
+        fs::write(self.run_dir.join("state.json"), &json)
+            .map_err(|e| format!("write run state: {e}"))?;
         fs::create_dir_all(&self.data_root).map_err(|e| format!("create data root: {e}"))?;
-        fs::write(self.data_root.join("training-status.json"), json).map_err(|e| format!("write global training status: {e}"))?;
+        fs::write(self.data_root.join("training-status.json"), json)
+            .map_err(|e| format!("write global training status: {e}"))?;
         Ok(())
     }
 }
 
-fn poll_commands(commands: &Receiver<TrainingCommand>, control_file: Option<&Path>) -> (bool, bool) {
+fn poll_commands(
+    commands: &Receiver<TrainingCommand>,
+    control_file: Option<&Path>,
+) -> (bool, bool) {
     let mut pause = false;
     let mut stop = false;
     while let Ok(command) = commands.try_recv() {
@@ -441,14 +609,18 @@ fn poll_commands(commands: &Receiver<TrainingCommand>, control_file: Option<&Pat
                 "stop" => stop = true,
                 _ => {}
             }
-            if pause || stop { let _ = fs::remove_file(path); }
+            if pause || stop {
+                let _ = fs::remove_file(path);
+            }
         }
     }
     (pause, stop)
 }
 
 fn append_metrics(path: &Path, p: &TrainingProgress) -> Result<(), String> {
-    if let Some(parent) = path.parent() { fs::create_dir_all(parent).map_err(|e| format!("create metrics dir: {e}"))?; }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create metrics dir: {e}"))?;
+    }
     let line = serde_json::json!({
         "timestamp_unix_ms": p.timestamp_unix_ms,
         "run_id": p.run_id,
@@ -461,10 +633,17 @@ fn append_metrics(path: &Path, p: &TrainingProgress) -> Result<(), String> {
         "gradient_norm": p.gradient_norm,
         "clipped": p.clipped
     });
-    let mut file = OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("open metrics: {e}"))?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("open metrics: {e}"))?;
     writeln!(file, "{line}").map_err(|e| format!("append metrics: {e}"))
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }

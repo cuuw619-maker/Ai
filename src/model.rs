@@ -17,7 +17,10 @@ pub struct ModelConfig {
 impl ModelConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.architecture != "AiNet-v1" && self.architecture != "AiNet-v1.1" {
-            return Err(format!("unsupported architecture id: {}", self.architecture));
+            return Err(format!(
+                "unsupported architecture id: {}",
+                self.architecture
+            ));
         }
         if self.vocab_size < 2
             || self.embedding_dim == 0
@@ -79,15 +82,35 @@ impl AiCell {
     }
 
     fn forward(&self, x: &[f32], memory: &[f32]) -> CellCache {
-        let keep_z = affine(&self.w_keep.data, &self.u_keep.data, &self.b_keep.data, x, memory, self.dim);
+        let keep_z = affine(
+            &self.w_keep.data,
+            &self.u_keep.data,
+            &self.b_keep.data,
+            x,
+            memory,
+            self.dim,
+        );
         let keep: Vec<f32> = keep_z.into_iter().map(sigmoid).collect();
 
-        let write_z = affine(&self.w_write.data, &self.u_write.data, &self.b_write.data, x, memory, self.dim);
+        let write_z = affine(
+            &self.w_write.data,
+            &self.u_write.data,
+            &self.b_write.data,
+            x,
+            memory,
+            self.dim,
+        );
         let write: Vec<f32> = write_z.into_iter().map(sigmoid).collect();
 
         let kept_memory: Vec<f32> = memory.iter().zip(&keep).map(|(m, k)| m * k).collect();
-        let candidate_z =
-            affine(&self.w_candidate.data, &self.u_candidate.data, &self.b_candidate.data, x, &kept_memory, self.dim);
+        let candidate_z = affine(
+            &self.w_candidate.data,
+            &self.u_candidate.data,
+            &self.b_candidate.data,
+            x,
+            &kept_memory,
+            self.dim,
+        );
         let candidate: Vec<f32> = candidate_z.into_iter().map(f32::tanh).collect();
 
         let new_memory: Vec<f32> = memory
@@ -123,7 +146,8 @@ impl AiCell {
 
         let mut dz_out = vec![0.0; d];
         for i in 0..d {
-            dz_out[i] = grad_output[i] * (1.0 - cache.output_activation[i] * cache.output_activation[i]);
+            dz_out[i] =
+                grad_output[i] * (1.0 - cache.output_activation[i] * cache.output_activation[i]);
         }
         outer_add(&mut self.w_out.grad, &dz_out, &cache.new_memory, d, d);
         for i in 0..d {
@@ -154,7 +178,13 @@ impl AiCell {
             .map(|(m, k)| m * k)
             .collect();
         outer_add(&mut self.w_candidate.grad, &dcandidate_z, &cache.x, d, d);
-        outer_add(&mut self.u_candidate.grad, &dcandidate_z, &kept_memory, d, d);
+        outer_add(
+            &mut self.u_candidate.grad,
+            &dcandidate_z,
+            &kept_memory,
+            d,
+            d,
+        );
         for i in 0..d {
             self.b_candidate.grad[i] += dcandidate_z[i];
         }
@@ -289,7 +319,11 @@ impl AiNet {
             + self.input_projection_b.as_ref().map_or(0, Parameter::len)
             + self.output_w.len()
             + self.output_b.len()
-            + self.cells.iter().map(AiCell::parameter_count).sum::<usize>()
+            + self
+                .cells
+                .iter()
+                .map(AiCell::parameter_count)
+                .sum::<usize>()
     }
 
     pub fn zero_grad(&mut self) {
@@ -415,7 +449,11 @@ impl AiNet {
         let mut hidden_grads = vec![vec![0.0; self.config.hidden_dim]; time];
 
         for t in 0..time {
-            let mut logits = matvec(&self.output_w.data, &hidden_history[t], self.config.vocab_size);
+            let mut logits = matvec(
+                &self.output_w.data,
+                &hidden_history[t],
+                self.config.vocab_size,
+            );
             for v in 0..self.config.vocab_size {
                 logits[v] += self.output_b.data[v];
             }
@@ -435,8 +473,7 @@ impl AiNet {
             }
         }
 
-        let mut memory_grads =
-            vec![vec![0.0; self.config.hidden_dim]; self.config.layer_count];
+        let mut memory_grads = vec![vec![0.0; self.config.hidden_dim]; self.config.layer_count];
 
         for t in (0..time).rev() {
             let mut upstream = hidden_grads[t].clone();
@@ -451,8 +488,15 @@ impl AiNet {
             let base = token * embedding_dim;
             let embedding = &embedding_history[t];
 
-            if let (Some(w), Some(b)) = (&mut self.input_projection_w, &mut self.input_projection_b) {
-                outer_add(&mut w.grad, &upstream, embedding, self.config.hidden_dim, embedding_dim);
+            if let (Some(w), Some(b)) = (&mut self.input_projection_w, &mut self.input_projection_b)
+            {
+                outer_add(
+                    &mut w.grad,
+                    &upstream,
+                    embedding,
+                    self.config.hidden_dim,
+                    embedding_dim,
+                );
                 for i in 0..self.config.hidden_dim {
                     b.grad[i] += upstream[i];
                 }
@@ -491,7 +535,10 @@ impl AiNet {
     }
 
     pub fn parameter_names(&self) -> Vec<String> {
-        self.parameter_snapshot().into_iter().map(|(name, _)| name).collect()
+        self.parameter_snapshot()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect()
     }
 
     pub fn parameters(&self) -> Vec<&Parameter> {
@@ -505,10 +552,17 @@ impl AiNet {
         }
         for cell in &self.cells {
             let ps = [
-                &cell.w_keep, &cell.u_keep, &cell.b_keep,
-                &cell.w_write, &cell.u_write, &cell.b_write,
-                &cell.w_candidate, &cell.u_candidate, &cell.b_candidate,
-                &cell.w_out, &cell.b_out,
+                &cell.w_keep,
+                &cell.u_keep,
+                &cell.b_keep,
+                &cell.w_write,
+                &cell.u_write,
+                &cell.b_write,
+                &cell.w_candidate,
+                &cell.u_candidate,
+                &cell.b_candidate,
+                &cell.w_out,
+                &cell.b_out,
             ];
             result.extend(ps);
         }
@@ -563,9 +617,11 @@ impl AiNet {
         let parameter_bytes = self.parameter_count() * std::mem::size_of::<f32>();
         let gradient_bytes = parameter_bytes;
         let optimizer_bytes = parameter_bytes * 2;
-        let bptt_cache_bytes =
-            sequence_length * self.config.layer_count * self.config.hidden_dim * 7
-                * std::mem::size_of::<f32>();
+        let bptt_cache_bytes = sequence_length
+            * self.config.layer_count
+            * self.config.hidden_dim
+            * 7
+            * std::mem::size_of::<f32>();
         let hidden_history_bytes =
             sequence_length * self.config.hidden_dim * std::mem::size_of::<f32>();
         parameter_bytes + gradient_bytes + optimizer_bytes + bptt_cache_bytes + hidden_history_bytes
@@ -879,9 +935,11 @@ fn atomic_save_with_previous(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
     {
         let mut file = fs::File::create(&temp).map_err(|e| format!("create model temp: {e}"))?;
-        file.write_all(bytes).map_err(|e| format!("write model temp: {e}"))?;
+        file.write_all(bytes)
+            .map_err(|e| format!("write model temp: {e}"))?;
         file.flush().map_err(|e| format!("flush model temp: {e}"))?;
-        file.sync_all().map_err(|e| format!("sync model temp: {e}"))?;
+        file.sync_all()
+            .map_err(|e| format!("sync model temp: {e}"))?;
     }
 
     if path.exists() {
@@ -924,14 +982,7 @@ fn project_embedding(x: &[f32], hidden: usize) -> Vec<f32> {
     out
 }
 
-fn affine(
-    w: &[f32],
-    u: &[f32],
-    b: &[f32],
-    x: &[f32],
-    m: &[f32],
-    dim: usize,
-) -> Vec<f32> {
+fn affine(w: &[f32], u: &[f32], b: &[f32], x: &[f32], m: &[f32], dim: usize) -> Vec<f32> {
     let mut z = matvec(w, x, dim);
     let um = matvec(u, m, dim);
     for i in 0..dim {
@@ -1192,7 +1243,8 @@ mod tests {
             layer_count: 1,
             sequence_length: 4,
             seed: 67890,
-        }).unwrap();
+        })
+        .unwrap();
         let input = [1usize, 2, 3, 4];
         let target = [2usize, 3, 4, 5];
 
@@ -1221,14 +1273,19 @@ mod tests {
         let eps = 1e-2f32;
 
         let original_projection = model.input_projection_w.as_ref().unwrap().data[projection_index];
-        model.input_projection_w.as_mut().unwrap().data[projection_index] = original_projection + eps;
+        model.input_projection_w.as_mut().unwrap().data[projection_index] =
+            original_projection + eps;
         let plus_projection = loss_without_grads(&mut model, &input, &target);
-        model.input_projection_w.as_mut().unwrap().data[projection_index] = original_projection - eps;
+        model.input_projection_w.as_mut().unwrap().data[projection_index] =
+            original_projection - eps;
         let minus_projection = loss_without_grads(&mut model, &input, &target);
         model.input_projection_w.as_mut().unwrap().data[projection_index] = original_projection;
 
         let numerical_projection = (plus_projection - minus_projection) / (2.0 * eps);
-        let proj_den = analytical_projection.abs().max(numerical_projection.abs()).max(1e-5);
+        let proj_den = analytical_projection
+            .abs()
+            .max(numerical_projection.abs())
+            .max(1e-5);
         assert!(
             (analytical_projection - numerical_projection).abs() < 5e-4
                 || (analytical_projection - numerical_projection).abs() / proj_den < 1e-1,
@@ -1243,7 +1300,10 @@ mod tests {
         model.embedding.data[embedding_index] = original_embedding;
 
         let numerical_embedding = (plus_embedding - minus_embedding) / (2.0 * eps);
-        let emb_den = analytical_embedding.abs().max(numerical_embedding.abs()).max(1e-5);
+        let emb_den = analytical_embedding
+            .abs()
+            .max(numerical_embedding.abs())
+            .max(1e-5);
         assert!(
             (analytical_embedding - numerical_embedding).abs() < 5e-4
                 || (analytical_embedding - numerical_embedding).abs() / emb_den < 1e-1,
@@ -1269,7 +1329,8 @@ mod tests {
             layer_count: 1,
             sequence_length: 8,
             seed: 24680,
-        }).unwrap();
+        })
+        .unwrap();
 
         let payload = model.encode_payload_v1().unwrap();
         let checksum = super::fnv1a64(&payload);
@@ -1328,20 +1389,20 @@ mod tests {
     }
 
     fn loss_without_grads(model: &mut AiNet, input: &[usize], target: &[usize]) -> f32 {
-        let mut memory =
-            vec![vec![0.0; model.config.hidden_dim]; model.config.layer_count];
+        let mut memory = vec![vec![0.0; model.config.hidden_dim]; model.config.layer_count];
         let mut hidden = Vec::new();
         for &token in input {
-            let embedding = super::embedding_row(
-                &model.embedding.data,
-                token,
-                model.config.embedding_dim,
-            );
+            let embedding =
+                super::embedding_row(&model.embedding.data, token, model.config.embedding_dim);
             let mut x = model.project_input(&embedding).unwrap();
             for layer in 0..model.config.layer_count {
                 let cache = model.cells[layer].forward(&x, &memory[layer]);
                 memory[layer] = cache.new_memory;
-                x = x.iter().zip(&cache.output_activation).map(|(a,b)| a+b).collect();
+                x = x
+                    .iter()
+                    .zip(&cache.output_activation)
+                    .map(|(a, b)| a + b)
+                    .collect();
             }
             hidden.push(x);
         }

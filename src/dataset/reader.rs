@@ -46,7 +46,9 @@ impl DatasetReader {
     }
 
     pub fn current_offset(&mut self) -> Result<u64, String> {
-        self.reader.stream_position().map_err(|e| format!("dataset position: {e}"))
+        self.reader
+            .stream_position()
+            .map_err(|e| format!("dataset position: {e}"))
     }
 
     pub fn next_sample_index(&self) -> u64 {
@@ -72,7 +74,11 @@ impl DatasetReader {
             DatasetFormat::Txt => line.trim_end_matches(&['\r', '\n'][..]).to_owned(),
             DatasetFormat::Jsonl => parse_jsonl(&line)?,
         };
-        Ok(Some(RawSample { text, file_offset: offset, sample_index: index }))
+        Ok(Some(RawSample {
+            text,
+            file_offset: offset,
+            sample_index: index,
+        }))
     }
 }
 
@@ -95,5 +101,7 @@ fn parse_jsonl(line: &str) -> AiResult<String> {
         out.push_str(assistant);
         return Ok(out);
     }
-    Err(AiError::Dataset("JSONL record requires text or user/assistant fields".into()))
+    Err(AiError::Dataset(
+        "JSONL record requires text or user/assistant fields".into(),
+    ))
 }

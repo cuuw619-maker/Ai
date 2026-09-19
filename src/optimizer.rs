@@ -53,8 +53,15 @@ impl AdamW {
         } else {
             assert_eq!(self.m.len(), params.len(), "AdamW parameter count changed");
             for (index, param) in params.iter().enumerate() {
-                assert_eq!(self.parameter_names[index], param.name, "AdamW parameter order changed");
-                assert_eq!(self.m[index].len(), param.len(), "AdamW parameter size changed");
+                assert_eq!(
+                    self.parameter_names[index], param.name,
+                    "AdamW parameter order changed"
+                );
+                assert_eq!(
+                    self.m[index].len(),
+                    param.len(),
+                    "AdamW parameter size changed"
+                );
             }
         }
 
@@ -70,8 +77,7 @@ impl AdamW {
                 let m_hat = self.m[index][i] / bias1;
                 let v_hat = self.v[index][i] / bias2;
                 param.data[i] -= self.learning_rate
-                    * (m_hat / (v_hat.sqrt() + self.epsilon)
-                        + self.weight_decay * param.data[i]);
+                    * (m_hat / (v_hat.sqrt() + self.epsilon) + self.weight_decay * param.data[i]);
                 param.grad[i] = 0.0;
             }
         }
@@ -128,7 +134,10 @@ impl AdamW {
                 ));
             }
             if state.m[index].len() != param.len() || state.v[index].len() != param.len() {
-                return Err(format!("AdamW parameter length mismatch for {}", param.name));
+                return Err(format!(
+                    "AdamW parameter length mismatch for {}",
+                    param.name
+                ));
             }
         }
         self.learning_rate = state.learning_rate;
@@ -164,7 +173,10 @@ impl AdamW {
                 return Err(format!("AdamW parameter mismatch at {index}"));
             }
             if self.m[index].len() != param.len() || self.v[index].len() != param.len() {
-                return Err(format!("AdamW parameter length mismatch for {}", param.name));
+                return Err(format!(
+                    "AdamW parameter length mismatch for {}",
+                    param.name
+                ));
             }
         }
         Ok(())

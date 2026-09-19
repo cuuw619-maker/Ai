@@ -14,7 +14,8 @@ impl Tensor {
         if data.len() != expected {
             return Err(format!(
                 "tensor data length {} does not match shape {:?}",
-                data.len(), shape
+                data.len(),
+                shape
             ));
         }
         let mut stride = vec![1; shape.len()];
@@ -51,7 +52,10 @@ impl Tensor {
 
     fn check_same_shape(&self, rhs: &Self) -> Result<(), String> {
         if self.shape != rhs.shape {
-            return Err(format!("shape mismatch: {:?} vs {:?}", self.shape, rhs.shape));
+            return Err(format!(
+                "shape mismatch: {:?} vs {:?}",
+                self.shape, rhs.shape
+            ));
         }
         Ok(())
     }
@@ -61,7 +65,12 @@ impl Tensor {
         F: Fn(f32, f32) -> f32,
     {
         self.check_same_shape(rhs)?;
-        let data = self.data.iter().zip(&rhs.data).map(|(a, b)| op(*a, *b)).collect();
+        let data = self
+            .data
+            .iter()
+            .zip(&rhs.data)
+            .map(|(a, b)| op(*a, *b))
+            .collect();
         Self::new(data, &self.shape)
     }
 

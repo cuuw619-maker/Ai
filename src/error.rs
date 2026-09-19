@@ -34,11 +34,15 @@ impl fmt::Display for AiError {
 impl std::error::Error for AiError {}
 
 impl From<io::Error> for AiError {
-    fn from(value: io::Error) -> Self { Self::Io(value) }
+    fn from(value: io::Error) -> Self {
+        Self::Io(value)
+    }
 }
 
 impl From<serde_json::Error> for AiError {
-    fn from(value: serde_json::Error) -> Self { Self::Serialization(value.to_string()) }
+    fn from(value: serde_json::Error) -> Self {
+        Self::Serialization(value.to_string())
+    }
 }
 
 pub type AiResult<T> = Result<T, AiError>;

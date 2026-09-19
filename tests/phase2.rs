@@ -1,14 +1,17 @@
 use ai::dataset::{dataset_metadata, DatasetFormat, DatasetReader, TrainingStream};
 use ai::model::{AiNet, ModelConfig};
 use ai::tokenizer::{default_special_tokens, Tokenizer, TokenizerTrainer, TokenizerTrainerConfig};
-use ai::training::{TrainingCommand, TrainingConfig, TrainingEvent, Trainer, TrainingWorker};
+use ai::training::{Trainer, TrainingCommand, TrainingConfig, TrainingEvent, TrainingWorker};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temp_path(name: &str) -> PathBuf {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     std::env::temp_dir().join(format!("ai-phase2-{name}-{}-{stamp}", std::process::id()))
 }
 
@@ -28,7 +31,8 @@ fn tokenizer_round_trip_and_checksum_are_real() {
     let corrupt_path = temp_path("tokenizer-corrupt.aitok");
     fs::write(&corpus, "hello hello\nПривет мир\nhello ai\n🙂 hello\n").unwrap();
 
-    let tokenizer = TokenizerTrainer::train(&corpus, DatasetFormat::Txt, &tokenizer_config()).unwrap();
+    let tokenizer =
+        TokenizerTrainer::train(&corpus, DatasetFormat::Txt, &tokenizer_config()).unwrap();
     for text in ["hello", "Привет мир", "hello Привет", "🙂 123", ""] {
         let encoded = tokenizer.encode(text);
         assert_eq!(tokenizer.decode(&encoded).unwrap(), text);
@@ -38,8 +42,16 @@ fn tokenizer_round_trip_and_checksum_are_real() {
     let loaded = Tokenizer::load(&tokenizer_path).unwrap();
 
     assert_eq!(id_before, loaded.tokenizer_id());
-    assert_eq!(tokenizer.encode("Українська + English 🙂"), loaded.encode("Українська + English 🙂"));
-    assert_eq!(tokenizer.decode(&loaded.encode("Українська + English 🙂")).unwrap(), "Українська + English 🙂");
+    assert_eq!(
+        tokenizer.encode("Українська + English 🙂"),
+        loaded.encode("Українська + English 🙂")
+    );
+    assert_eq!(
+        tokenizer
+            .decode(&loaded.encode("Українська + English 🙂"))
+            .unwrap(),
+        "Українська + English 🙂"
+    );
 
     let mut bytes = fs::read(&tokenizer_path).unwrap();
     let last = bytes.len() - 1;
@@ -60,7 +72,8 @@ fn dataset_cursor_resumes_exact_sequence() {
     let metadata = dataset_metadata(&corpus, DatasetFormat::Txt).unwrap();
 
     let reader = DatasetReader::open(&corpus, DatasetFormat::Txt).unwrap();
-    let mut stream = TrainingStream::new(reader, tokenizer.clone(), 8, metadata.dataset_id.clone()).unwrap();
+    let mut stream =
+        TrainingStream::new(reader, tokenizer.clone(), 8, metadata.dataset_id.clone()).unwrap();
     let first = stream.next_sequence().unwrap().unwrap();
     let second = stream.next_sequence().unwrap().unwrap();
 
@@ -71,7 +84,8 @@ fn dataset_cursor_resumes_exact_sequence() {
         8,
         metadata.dataset_id.clone(),
         &first.cursor_after,
-    ).unwrap();
+    )
+    .unwrap();
     let resumed_second = resumed.next_sequence().unwrap().unwrap();
 
     assert_eq!(second.input, resumed_second.input);
@@ -88,7 +102,8 @@ fn checkpoint_resume_matches_continuous_training() {
     fs::write(
         &corpus,
         "abcdefghijklmno\npqrstuvwxyz0123456789\nABCDEFGHIJKLMNO\nPQRSTUVWXYZ012345\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     let tokenizer = Tokenizer::from_parts(default_special_tokens(), Vec::new()).unwrap();
     let model_config = ModelConfig {
@@ -116,7 +131,8 @@ fn checkpoint_resume_matches_continuous_training() {
         DatasetFormat::Txt,
         config.clone(),
         &data_root,
-    ).unwrap();
+    )
+    .unwrap();
     let (_command_tx, command_rx) = mpsc::channel();
     let (event_tx, _event_rx) = mpsc::channel();
     continuous.run(&command_rx, None, &event_tx);
@@ -129,7 +145,8 @@ fn checkpoint_resume_matches_continuous_training() {
         DatasetFormat::Txt,
         config,
         &data_root,
-    ).unwrap();
+    )
+    .unwrap();
     let mut worker = TrainingWorker::spawn(paused_trainer, None);
     worker.send(TrainingCommand::Start).unwrap();
 
@@ -154,15 +171,32 @@ fn checkpoint_resume_matches_continuous_training() {
         &corpus,
         DatasetFormat::Txt,
         &data_root,
-    ).unwrap();
+    )
+    .unwrap();
     resumed.run(&command_rx, None, &event_tx);
     assert_eq!(resumed.state.step, 2);
 
-    let continuous_params: Vec<Vec<f32>> = continuous.model.parameters().into_iter().map(|p| p.data.clone()).collect();
-    let resumed_params: Vec<Vec<f32>> = resumed.model.parameters().into_iter().map(|p| p.data.clone()).collect();
-    assert_eq!(continuous.model.parameter_names(), resumed.model.parameter_names());
+    let continuous_params: Vec<Vec<f32>> = continuous
+        .model
+        .parameters()
+        .into_iter()
+        .map(|p| p.data.clone())
+        .collect();
+    let resumed_params: Vec<Vec<f32>> = resumed
+        .model
+        .parameters()
+        .into_iter()
+        .map(|p| p.data.clone())
+        .collect();
+    assert_eq!(
+        continuous.model.parameter_names(),
+        resumed.model.parameter_names()
+    );
     assert_eq!(continuous_params, resumed_params);
-    assert_eq!(continuous.optimizer.step_count(), resumed.optimizer.step_count());
+    assert_eq!(
+        continuous.optimizer.step_count(),
+        resumed.optimizer.step_count()
+    );
 
     let _ = fs::remove_file(corpus);
     let _ = fs::remove_dir_all(data_root);

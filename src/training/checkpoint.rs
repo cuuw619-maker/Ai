@@ -60,7 +60,8 @@ impl Checkpoint {
     }
 
     pub fn load(path: &Path) -> Result<CheckpointData, String> {
-        let bytes = fs::read(path).map_err(|e| format!("read checkpoint {}: {e}", path.display()))?;
+        let bytes =
+            fs::read(path).map_err(|e| format!("read checkpoint {}: {e}", path.display()))?;
         decode_container(&bytes)
     }
 
@@ -71,7 +72,9 @@ impl Checkpoint {
                 let previous = path.with_extension("aicheckpoint.prev");
                 match Self::load(&previous) {
                     Ok(data) => Ok((data, previous)),
-                    Err(fallback) => Err(format!("latest checkpoint invalid: {primary}; previous invalid: {fallback}")),
+                    Err(fallback) => Err(format!(
+                        "latest checkpoint invalid: {primary}; previous invalid: {fallback}"
+                    )),
                 }
             }
         }
@@ -79,9 +82,13 @@ impl Checkpoint {
 
     pub fn list(dir: &Path) -> Result<Vec<PathBuf>, String> {
         let mut files = Vec::new();
-        if !dir.exists() { return Ok(files); }
+        if !dir.exists() {
+            return Ok(files);
+        }
         for entry in fs::read_dir(dir).map_err(|e| format!("read checkpoint directory: {e}"))? {
-            let path = entry.map_err(|e| format!("read checkpoint entry: {e}"))?.path();
+            let path = entry
+                .map_err(|e| format!("read checkpoint entry: {e}"))?
+                .path();
             if path.extension().and_then(|e| e.to_str()) == Some("aicheckpoint") {
                 files.push(path);
             }
@@ -133,14 +140,22 @@ fn encode(data: &CheckpointData) -> Result<Vec<u8>, String> {
 }
 
 fn decode_container(bytes: &[u8]) -> Result<CheckpointData, String> {
-    if bytes.len() < 28 || &bytes[..8] != MAGIC { return Err("invalid .aicheckpoint header".into()); }
+    if bytes.len() < 28 || &bytes[..8] != MAGIC {
+        return Err("invalid .aicheckpoint header".into());
+    }
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
-    if version != VERSION { return Err(format!("unsupported .aicheckpoint version {version}")); }
+    if version != VERSION {
+        return Err(format!("unsupported .aicheckpoint version {version}"));
+    }
     let expected = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
     let len = u64::from_le_bytes(bytes[20..28].try_into().unwrap()) as usize;
-    if bytes.len() != 28 + len { return Err("invalid .aicheckpoint payload length".into()); }
+    if bytes.len() != 28 + len {
+        return Err("invalid .aicheckpoint payload length".into());
+    }
     let payload = &bytes[28..];
-    if fnv1a64(payload) != expected { return Err("checkpoint checksum mismatch".into()); }
+    if fnv1a64(payload) != expected {
+        return Err("checkpoint checksum mismatch".into());
+    }
 
     let mut r = Reader::new(payload);
     let run_id = r.string()?;
@@ -183,7 +198,9 @@ fn decode_container(bytes: &[u8]) -> Result<CheckpointData, String> {
     let optimizer = read_optimizer(&mut r)?;
     let model_len = r.u64()? as usize;
     let model_bytes = r.take(model_len)?.to_vec();
-    if !r.finished() { return Err("trailing bytes in checkpoint".into()); }
+    if !r.finished() {
+        return Err("trailing bytes in checkpoint".into());
+    }
 
     Ok(CheckpointData {
         run_id,
@@ -224,7 +241,10 @@ fn write_config(w: &mut Writer, c: &TrainingConfig) {
     w.u64(c.memory_budget_mb as u64);
     w.u8(c.continuous as u8);
     match c.max_steps {
-        Some(v) => { w.u8(1); w.u64(v); },
+        Some(v) => {
+            w.u8(1);
+            w.u64(v);
+        }
         None => w.u8(0),
     }
 }
@@ -243,9 +263,18 @@ fn read_config(r: &mut Reader) -> Result<TrainingConfig, String> {
     let continuous = r.u8()? != 0;
     let max_steps = if r.u8()? != 0 { Some(r.u64()?) } else { None };
     Ok(TrainingConfig {
-        epochs, sequence_length, micro_batch, gradient_accumulation,
-        learning_rate, weight_decay, max_grad_norm, checkpoint_interval_steps,
-        max_cpu_threads, memory_budget_mb, continuous, max_steps,
+        epochs,
+        sequence_length,
+        micro_batch,
+        gradient_accumulation,
+        learning_rate,
+        weight_decay,
+        max_grad_norm,
+        checkpoint_interval_steps,
+        max_cpu_threads,
+        memory_budget_mb,
+        continuous,
+        max_steps,
     })
 }
 
@@ -260,9 +289,13 @@ fn write_optimizer(w: &mut Writer, o: &AdamWState) {
     for (i, name) in o.parameter_names.iter().enumerate() {
         w.string(name);
         w.u64(o.m[i].len() as u64);
-        for v in &o.m[i] { w.f32(*v); }
+        for v in &o.m[i] {
+            w.f32(*v);
+        }
         w.u64(o.v[i].len() as u64);
-        for v in &o.v[i] { w.f32(*v); }
+        for v in &o.v[i] {
+            w.f32(*v);
+        }
     }
 }
 
@@ -281,44 +314,92 @@ fn read_optimizer(r: &mut Reader) -> Result<AdamWState, String> {
         names.push(r.string()?);
         let ml = r.u64()? as usize;
         let mut mv = Vec::with_capacity(ml);
-        for _ in 0..ml { mv.push(r.f32()?); }
+        for _ in 0..ml {
+            mv.push(r.f32()?);
+        }
         let vl = r.u64()? as usize;
         let mut vv = Vec::with_capacity(vl);
-        for _ in 0..vl { vv.push(r.f32()?); }
+        for _ in 0..vl {
+            vv.push(r.f32()?);
+        }
         m.push(mv);
         v.push(vv);
     }
-    Ok(AdamWState { learning_rate, weight_decay, beta1, beta2, epsilon, step, parameter_names: names, m, v })
+    Ok(AdamWState {
+        learning_rate,
+        weight_decay,
+        beta1,
+        beta2,
+        epsilon,
+        step,
+        parameter_names: names,
+        m,
+        v,
+    })
 }
 
 fn status_byte(status: TrainingStatus) -> u8 {
     use TrainingStatus::*;
-    match status { Idle => 0, Starting => 1, Running => 2, Pausing => 3, Paused => 4, Resuming => 5, Saving => 6, Completed => 7, Stopping => 8, Stopped => 9, Failed => 10 }
+    match status {
+        Idle => 0,
+        Starting => 1,
+        Running => 2,
+        Pausing => 3,
+        Paused => 4,
+        Resuming => 5,
+        Saving => 6,
+        Completed => 7,
+        Stopping => 8,
+        Stopped => 9,
+        Failed => 10,
+    }
 }
 
 fn status_from_byte(value: u8) -> Result<TrainingStatus, String> {
     use TrainingStatus::*;
-    Ok(match value { 0 => Idle, 1 => Starting, 2 => Running, 3 => Pausing, 4 => Paused, 5 => Resuming, 6 => Saving, 7 => Completed, 8 => Stopping, 9 => Stopped, 10 => Failed, _ => return Err(format!("invalid checkpoint status {value}")) })
+    Ok(match value {
+        0 => Idle,
+        1 => Starting,
+        2 => Running,
+        3 => Pausing,
+        4 => Paused,
+        5 => Resuming,
+        6 => Saving,
+        7 => Completed,
+        8 => Stopping,
+        9 => Stopped,
+        10 => Failed,
+        _ => return Err(format!("invalid checkpoint status {value}")),
+    })
 }
 
 fn atomic_save(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() { fs::create_dir_all(parent).map_err(|e| format!("create checkpoint directory: {e}"))?; }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create checkpoint directory: {e}"))?;
+    }
     let temp = path.with_extension("aicheckpoint.tmp");
     let previous = path.with_extension("aicheckpoint.prev");
     {
         let mut file = File::create(&temp).map_err(|e| format!("create checkpoint temp: {e}"))?;
-        file.write_all(bytes).map_err(|e| format!("write checkpoint temp: {e}"))?;
-        file.flush().map_err(|e| format!("flush checkpoint temp: {e}"))?;
-        file.sync_all().map_err(|e| format!("sync checkpoint temp: {e}"))?;
+        file.write_all(bytes)
+            .map_err(|e| format!("write checkpoint temp: {e}"))?;
+        file.flush()
+            .map_err(|e| format!("flush checkpoint temp: {e}"))?;
+        file.sync_all()
+            .map_err(|e| format!("sync checkpoint temp: {e}"))?;
     }
     if path.exists() {
-        if previous.exists() { fs::remove_file(&previous).map_err(|e| format!("remove previous checkpoint: {e}"))?; }
+        if previous.exists() {
+            fs::remove_file(&previous).map_err(|e| format!("remove previous checkpoint: {e}"))?;
+        }
         fs::rename(path, &previous).map_err(|e| format!("rotate checkpoint: {e}"))?;
     }
     match fs::rename(&temp, path) {
         Ok(()) => Ok(()),
         Err(e) => {
-            if previous.exists() && !path.exists() { let _ = fs::rename(&previous, path); }
+            if previous.exists() && !path.exists() {
+                let _ = fs::rename(&previous, path);
+            }
             let _ = fs::remove_file(&temp);
             Err(format!("install checkpoint: {e}"))
         }
@@ -326,31 +407,63 @@ fn atomic_save(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 #[derive(Default)]
-struct Writer { bytes: Vec<u8> }
-impl Writer {
-    fn u8(&mut self, v: u8) { self.bytes.push(v); }
-    fn u64(&mut self, v: u64) { self.bytes.extend_from_slice(&v.to_le_bytes()); }
-    fn f32(&mut self, v: f32) { self.bytes.extend_from_slice(&v.to_le_bytes()); }
-    fn string(&mut self, v: &str) { self.u64(v.len() as u64); self.bytes.extend_from_slice(v.as_bytes()); }
+struct Writer {
+    bytes: Vec<u8>,
 }
-struct Reader<'a> { data: &'a [u8], pos: usize }
-impl<'a> Reader<'a> {
-    fn new(data: &'a [u8]) -> Self { Self { data, pos: 0 } }
-    fn take(&mut self, n: usize) -> Result<&'a [u8], String> {
-        if self.pos + n > self.data.len() { return Err("truncated checkpoint".into()); }
-        let out = &self.data[self.pos..self.pos+n]; self.pos += n; Ok(out)
+impl Writer {
+    fn u8(&mut self, v: u8) {
+        self.bytes.push(v);
     }
-    fn u8(&mut self) -> Result<u8, String> { Ok(self.take(1)?[0]) }
-    fn u64(&mut self) -> Result<u64, String> { Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap())) }
-    fn f32(&mut self) -> Result<f32, String> { Ok(f32::from_le_bytes(self.take(4)?.try_into().unwrap())) }
+    fn u64(&mut self, v: u64) {
+        self.bytes.extend_from_slice(&v.to_le_bytes());
+    }
+    fn f32(&mut self, v: f32) {
+        self.bytes.extend_from_slice(&v.to_le_bytes());
+    }
+    fn string(&mut self, v: &str) {
+        self.u64(v.len() as u64);
+        self.bytes.extend_from_slice(v.as_bytes());
+    }
+}
+struct Reader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+impl<'a> Reader<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+    fn take(&mut self, n: usize) -> Result<&'a [u8], String> {
+        if self.pos + n > self.data.len() {
+            return Err("truncated checkpoint".into());
+        }
+        let out = &self.data[self.pos..self.pos + n];
+        self.pos += n;
+        Ok(out)
+    }
+    fn u8(&mut self) -> Result<u8, String> {
+        Ok(self.take(1)?[0])
+    }
+    fn u64(&mut self) -> Result<u64, String> {
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+    }
+    fn f32(&mut self) -> Result<f32, String> {
+        Ok(f32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+    }
     fn string(&mut self) -> Result<String, String> {
         let len = self.u64()? as usize;
-        String::from_utf8(self.take(len)?.to_vec()).map_err(|e| format!("invalid checkpoint UTF-8: {e}"))
+        String::from_utf8(self.take(len)?.to_vec())
+            .map_err(|e| format!("invalid checkpoint UTF-8: {e}"))
     }
-    fn finished(&self) -> bool { self.pos == self.data.len() }
+    fn finished(&self) -> bool {
+        self.pos == self.data.len()
+    }
 }
 fn fnv1a64(data: &[u8]) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
-    for byte in data { hash ^= *byte as u64; hash = hash.wrapping_mul(0x100000001b3); }
+    for byte in data {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
     hash
 }

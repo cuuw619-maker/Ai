@@ -16,7 +16,10 @@ impl Tokenizer {
         Self::from_parts(default_special_tokens(), Vec::new()).expect("default tokenizer")
     }
 
-    pub fn from_parts(special_tokens: Vec<SpecialToken>, merges: Vec<Merge>) -> Result<Self, String> {
+    pub fn from_parts(
+        special_tokens: Vec<SpecialToken>,
+        merges: Vec<Merge>,
+    ) -> Result<Self, String> {
         let mut tokenizer = Self {
             special_tokens,
             merges,
@@ -40,7 +43,10 @@ impl Tokenizer {
     }
 
     pub fn special_id(&self, name: &str) -> Option<u32> {
-        self.special_tokens.iter().find(|t| t.name == name).map(|t| t.id)
+        self.special_tokens
+            .iter()
+            .find(|t| t.name == name)
+            .map(|t| t.id)
     }
 
     pub fn encode(&self, text: &str) -> Vec<u32> {
@@ -61,7 +67,10 @@ impl Tokenizer {
             let start = i;
             i += 1;
             while i < bytes.len()
-                && !self.special_tokens.iter().any(|t| bytes[i..].starts_with(t.text.as_bytes()))
+                && !self
+                    .special_tokens
+                    .iter()
+                    .any(|t| bytes[i..].starts_with(t.text.as_bytes()))
             {
                 i += 1;
             }
@@ -80,10 +89,7 @@ impl Tokenizer {
             let mut i = 0;
             let mut changed = false;
             while i < ids.len() {
-                if i + 1 < ids.len()
-                    && ids[i] == merge.left
-                    && ids[i + 1] == merge.right
-                {
+                if i + 1 < ids.len() && ids[i] == merge.left && ids[i + 1] == merge.right {
                     out.push(merge.new_id);
                     i += 2;
                     changed = true;
@@ -119,7 +125,10 @@ impl Tokenizer {
         let mut ids = HashMap::new();
         for token in &self.special_tokens {
             if token.id < BYTE_VOCAB_SIZE {
-                return Err(format!("special token {} overlaps byte vocabulary", token.name));
+                return Err(format!(
+                    "special token {} overlaps byte vocabulary",
+                    token.name
+                ));
             }
             if ids.insert(token.id, token.name.clone()).is_some() {
                 return Err(format!("duplicate special token id {}", token.id));
@@ -136,10 +145,23 @@ impl Tokenizer {
         for (index, merge) in self.merges.iter().enumerate() {
             let expected_id = expected_start + index as u32;
             if merge.new_id != expected_id {
-                return Err(format!("merge {} has id {}, expected {}", index, merge.new_id, expected_id));
+                return Err(format!(
+                    "merge {} has id {}, expected {}",
+                    index, merge.new_id, expected_id
+                ));
             }
-            let left = known.get(&merge.left).ok_or_else(|| format!("merge {} references unknown left token {}", index, merge.left))?;
-            let right = known.get(&merge.right).ok_or_else(|| format!("merge {} references unknown right token {}", index, merge.right))?;
+            let left = known.get(&merge.left).ok_or_else(|| {
+                format!(
+                    "merge {} references unknown left token {}",
+                    index, merge.left
+                )
+            })?;
+            let right = known.get(&merge.right).ok_or_else(|| {
+                format!(
+                    "merge {} references unknown right token {}",
+                    index, merge.right
+                )
+            })?;
             let mut combined = Vec::with_capacity(left.len() + right.len());
             combined.extend_from_slice(left);
             combined.extend_from_slice(right);
@@ -156,11 +178,20 @@ impl Tokenizer {
             self.token_bytes.insert(id, vec![id as u8]);
         }
         for token in &self.special_tokens {
-            self.token_bytes.insert(token.id, token.text.as_bytes().to_vec());
+            self.token_bytes
+                .insert(token.id, token.text.as_bytes().to_vec());
         }
         for merge in &self.merges {
-            let left = self.token_bytes.get(&merge.left).cloned().ok_or_else(|| format!("unknown merge left {}", merge.left))?;
-            let right = self.token_bytes.get(&merge.right).cloned().ok_or_else(|| format!("unknown merge right {}", merge.right))?;
+            let left = self
+                .token_bytes
+                .get(&merge.left)
+                .cloned()
+                .ok_or_else(|| format!("unknown merge left {}", merge.left))?;
+            let right = self
+                .token_bytes
+                .get(&merge.right)
+                .cloned()
+                .ok_or_else(|| format!("unknown merge right {}", merge.right))?;
             let mut combined = left;
             combined.extend_from_slice(&right);
             self.token_bytes.insert(merge.new_id, combined);

@@ -44,9 +44,12 @@ pub fn save(tokenizer: &Tokenizer, path: &Path) -> Result<(), String> {
     let previous = path.with_extension("aitok.prev");
     {
         let mut file = File::create(&temp).map_err(|e| format!("create tokenizer temp: {e}"))?;
-        file.write_all(&bytes).map_err(|e| format!("write tokenizer temp: {e}"))?;
-        file.flush().map_err(|e| format!("flush tokenizer temp: {e}"))?;
-        file.sync_all().map_err(|e| format!("sync tokenizer temp: {e}"))?;
+        file.write_all(&bytes)
+            .map_err(|e| format!("write tokenizer temp: {e}"))?;
+        file.flush()
+            .map_err(|e| format!("flush tokenizer temp: {e}"))?;
+        file.sync_all()
+            .map_err(|e| format!("sync tokenizer temp: {e}"))?;
     }
     if path.exists() {
         if previous.exists() {
@@ -123,31 +126,48 @@ struct Writer {
     bytes: Vec<u8>,
 }
 impl Writer {
-    fn u32(&mut self, v: u32) { self.bytes.extend_from_slice(&v.to_le_bytes()); }
+    fn u32(&mut self, v: u32) {
+        self.bytes.extend_from_slice(&v.to_le_bytes());
+    }
     fn string(&mut self, v: &str) {
         self.u32(v.len() as u32);
         self.bytes.extend_from_slice(v.as_bytes());
     }
 }
 
-struct Reader<'a> { data: &'a [u8], pos: usize }
+struct Reader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
 impl<'a> Reader<'a> {
-    fn new(data: &'a [u8]) -> Self { Self { data, pos: 0 } }
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
     fn take(&mut self, n: usize) -> Result<&'a [u8], String> {
-        if self.pos + n > self.data.len() { return Err("truncated .aitok payload".into()); }
-        let out = &self.data[self.pos..self.pos+n];
+        if self.pos + n > self.data.len() {
+            return Err("truncated .aitok payload".into());
+        }
+        let out = &self.data[self.pos..self.pos + n];
         self.pos += n;
         Ok(out)
     }
-    fn u32(&mut self) -> Result<u32, String> { Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap())) }
+    fn u32(&mut self) -> Result<u32, String> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+    }
     fn string(&mut self) -> Result<String, String> {
         let len = self.u32()? as usize;
-        String::from_utf8(self.take(len)?.to_vec()).map_err(|e| format!("invalid UTF-8 tokenizer string: {e}"))
+        String::from_utf8(self.take(len)?.to_vec())
+            .map_err(|e| format!("invalid UTF-8 tokenizer string: {e}"))
     }
-    fn finished(&self) -> bool { self.pos == self.data.len() }
+    fn finished(&self) -> bool {
+        self.pos == self.data.len()
+    }
 }
 fn fnv1a64(data: &[u8]) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
-    for byte in data { hash ^= *byte as u64; hash = hash.wrapping_mul(0x100000001b3); }
+    for byte in data {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
     hash
 }

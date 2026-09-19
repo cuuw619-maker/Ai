@@ -27,8 +27,15 @@ pub struct TrainingStream {
 }
 
 impl TrainingStream {
-    pub fn new(reader: DatasetReader, tokenizer: Tokenizer, sequence_length: usize, dataset_id: String) -> Result<Self, String> {
-        if sequence_length == 0 { return Err("sequence length must be non-zero".into()); }
+    pub fn new(
+        reader: DatasetReader,
+        tokenizer: Tokenizer,
+        sequence_length: usize,
+        dataset_id: String,
+    ) -> Result<Self, String> {
+        if sequence_length == 0 {
+            return Err("sequence length must be non-zero".into());
+        }
         Ok(Self {
             reader,
             tokenizer,
@@ -62,10 +69,14 @@ impl TrainingStream {
             };
             let mut tokens: Vec<u32> = self.tokenizer.encode(&sample.text);
             tokens.push(self.tokenizer.eos_id());
-            if tokens.is_empty() { continue; }
+            if tokens.is_empty() {
+                continue;
+            }
             let position = if let Some(skip) = self.resume_token_position.take() {
                 (skip as usize).min(tokens.len())
-            } else { 0 };
+            } else {
+                0
+            };
             self.chunks.push_back(TokenChunk {
                 cursor: DatasetCursor {
                     dataset_id: self.dataset_id.clone(),
@@ -82,11 +93,18 @@ impl TrainingStream {
     }
 
     fn available_tokens(&self) -> usize {
-        self.chunks.iter().map(|c| c.tokens.len().saturating_sub(c.position)).sum()
+        self.chunks
+            .iter()
+            .map(|c| c.tokens.len().saturating_sub(c.position))
+            .sum()
     }
 
     fn normalize(&mut self) {
-        while self.chunks.front().is_some_and(|c| c.position >= c.tokens.len()) {
+        while self
+            .chunks
+            .front()
+            .is_some_and(|c| c.position >= c.tokens.len())
+        {
             self.chunks.pop_front();
         }
     }
@@ -125,8 +143,16 @@ impl TrainingStream {
         self.normalize();
         self.fill(1)?;
         let after = self.cursor()?;
-        let input = ids[..self.sequence_length].iter().map(|v| *v as usize).collect();
+        let input = ids[..self.sequence_length]
+            .iter()
+            .map(|v| *v as usize)
+            .collect();
         let target = ids[1..].iter().map(|v| *v as usize).collect();
-        Ok(Some(TrainingSequence { input, target, cursor_before: before, cursor_after: after }))
+        Ok(Some(TrainingSequence {
+            input,
+            target,
+            cursor_before: before,
+            cursor_after: after,
+        }))
     }
 }
