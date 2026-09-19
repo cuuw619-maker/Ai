@@ -36,6 +36,8 @@ impl TrainingStatus {
                 | (Pausing, Saving)
                 | (Stopping, Saving)
                 | (Paused, Resuming)
+                | (Stopped, Resuming)
+                | (Completed, Resuming)
                 | (Resuming, Running)
                 | (Resuming, Failed)
         )
