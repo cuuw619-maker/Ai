@@ -2,9 +2,6 @@ use crate::neural::Parameter;
 use std::fs;
 use std::path::Path;
 
-const MODEL_MAGIC: &[u8; 8] = b"AIMDLv01";
-const MODEL_VERSION: u32 = 1;
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelConfig {
     pub architecture: String,
