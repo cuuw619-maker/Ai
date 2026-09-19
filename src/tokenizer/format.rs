@@ -37,15 +37,33 @@ pub fn save(tokenizer: &Tokenizer, path: &Path) -> Result<(), String> {
     bytes.extend_from_slice(&(payload.len() as u64).to_le_bytes());
     bytes.extend_from_slice(&payload);
 
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create tokenizer directory: {e}"))?;
+    }
     let temp = path.with_extension("aitok.tmp");
+    let previous = path.with_extension("aitok.prev");
     {
         let mut file = File::create(&temp).map_err(|e| format!("create tokenizer temp: {e}"))?;
         file.write_all(&bytes).map_err(|e| format!("write tokenizer temp: {e}"))?;
         file.flush().map_err(|e| format!("flush tokenizer temp: {e}"))?;
         file.sync_all().map_err(|e| format!("sync tokenizer temp: {e}"))?;
     }
-    fs::rename(&temp, path).map_err(|e| format!("install tokenizer: {e}"))?;
-    Ok(())
+    if path.exists() {
+        if previous.exists() {
+            fs::remove_file(&previous).map_err(|e| format!("remove previous tokenizer: {e}"))?;
+        }
+        fs::rename(path, &previous).map_err(|e| format!("rotate tokenizer: {e}"))?;
+    }
+    match fs::rename(&temp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            if previous.exists() && !path.exists() {
+                let _ = fs::rename(&previous, path);
+            }
+            let _ = fs::remove_file(&temp);
+            Err(format!("install tokenizer atomically: {e}"))
+        }
+    }
 }
 
 pub fn load(path: &Path) -> Result<Tokenizer, String> {
