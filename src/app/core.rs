@@ -1,4 +1,4 @@
-use super::config::{AppConfig, TrainingUiConfig};
+use super::config::AppConfig;
 use super::logging::{CrashContext, Logger, RuntimeGuard};
 use super::resources::{ResourceMonitor, ResourceSnapshot};
 use crate::architecture::AiNet;
@@ -7,8 +7,8 @@ use crate::inference::{GenerationConfig, InferenceEngine};
 use crate::neural::Tensor;
 use crate::tokenizer::{Tokenizer, TokenizerTrainer, TokenizerTrainerConfig};
 use crate::training::{
-    Checkpoint, Trainer, TrainingCommand, TrainingConfig, TrainingEvent, TrainingProgress,
-    TrainingStatus, TrainingWorker,
+    Checkpoint, ModelTrainingSnapshot, Trainer, TrainingCommand, TrainingConfig, TrainingEvent,
+    TrainingProgress, TrainingStatus, TrainingWorker,
 };
 use std::collections::VecDeque;
 use std::fs;
@@ -391,15 +391,26 @@ impl AppCore {
             self.dataset = None;
             return;
         };
-        let format = DatasetFormat::from_path(&path);
-        let info = DatasetInfo {
+        let format = match DatasetFormat::from_path(&path) {
+            Ok(value) => value,
+            Err(error) => {
+                self.dataset = Some(DatasetInfo {
+                    path,
+                    format: DatasetFormat::Txt,
+                    metadata_id: None,
+                    report: None,
+                    error: Some(error),
+                });
+                return;
+            }
+        };
+        self.dataset = Some(DatasetInfo {
             path,
             format,
             metadata_id: None,
             report: None,
             error: None,
-        };
-        self.dataset = Some(info);
+        });
     }
 
     pub fn pick_dataset(&mut self) {
@@ -409,9 +420,16 @@ impl AppCore {
         else {
             return;
         };
+        let format = match DatasetFormat::from_path(&path) {
+            Ok(value) => value,
+            Err(error) => {
+                self.last_error = Some(error);
+                return;
+            }
+        };
         self.config.datasets = vec![path.display().to_string()];
         self.dataset = Some(DatasetInfo {
-            format: DatasetFormat::from_path(&path),
+            format,
             path,
             metadata_id: None,
             report: None,
@@ -634,24 +652,27 @@ impl AppCore {
         if self.worker.is_some() {
             return;
         }
-        let Some(recovery) = self.recovery_session.clone().or_else(|| {
-            self.training
-                .checkpoint
-                .clone()
-                .map(|checkpoint| TrainingRecovery {
-                    run_id: self.training.run_id.clone(),
-                    step: self.training.step,
-                    epoch: self.training.epoch,
-                    checkpoint,
-                    model_id: self.model.as_ref()?.config.as_ref()?.model_id.clone(),
-                    dataset_id: self
-                        .dataset
-                        .as_ref()?
-                        .metadata_id
-                        .clone()
-                        .unwrap_or_default(),
-                })
-        }) else {
+        let fallback_recovery = self.training.checkpoint.clone().and_then(|checkpoint| {
+            let model_id = self
+                .model
+                .as_ref()
+                .and_then(|model| model.config.as_ref())
+                .map(|config| config.model_id.clone())?;
+            let dataset_id = self
+                .dataset
+                .as_ref()
+                .and_then(|dataset| dataset.metadata_id.clone())
+                .unwrap_or_default();
+            Some(TrainingRecovery {
+                run_id: self.training.run_id.clone(),
+                step: self.training.step,
+                epoch: self.training.epoch,
+                checkpoint,
+                model_id,
+                dataset_id,
+            })
+        });
+        let Some(recovery) = self.recovery_session.clone().or(fallback_recovery) else {
             self.last_error = Some("No resumable checkpoint found.".into());
             return;
         };
@@ -1234,9 +1255,13 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
             sequence_length: 8,
             seed: 7,
         })?;
-        let ids = tokenizer.encode("hello");
-        let (loss, _) =
-            model.sequence_loss(&ids[..4.min(ids.len())], &ids[..4.min(ids.len())], None)?;
+        let ids = tokenizer
+            .encode("hello")
+            .into_iter()
+            .map(|value| value as usize)
+            .collect::<Vec<_>>();
+        let len = ids.len().min(4);
+        let (loss, _) = model.sequence_loss(&ids[..len], &ids[..len], None)?;
         if !loss.is_finite() {
             return Err("non-finite sequence loss".into());
         }
@@ -1256,7 +1281,11 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
             sequence_length: 4,
             seed: 11,
         })?;
-        let ids = tokenizer.encode("abcd");
+        let ids = tokenizer
+            .encode("abcd")
+            .into_iter()
+            .map(|value| value as usize)
+            .collect::<Vec<_>>();
         let before = model.weights_checksum();
         let loss = model.train_step(&ids[..4], &ids[..4], None)?;
         if !loss.is_finite() {
