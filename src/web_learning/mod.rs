@@ -545,23 +545,6 @@ impl WebDiscovery {
                 }
                 continue;
             }
-            if WebParser::is_sitemap(&body) {
-                for url in WebParser::sitemap_links(&body)
-                    .into_iter()
-                    .take(settings.max_pages_per_scan)
-                {
-                    let absolute = absolute_url(&page.final_url, &url);
-                    if is_http_url(&absolute) {
-                        candidates.push(DiscoveredItem {
-                            url: absolute,
-                            title: None,
-                            published_at: None,
-                            content_hint: None,
-                        });
-                    }
-                }
-                continue;
-            }
             let doc = ContentCleaner::clean(&body);
             let text = doc.text.trim().to_string();
             if text.is_empty() { rejected += 1; continue; }
