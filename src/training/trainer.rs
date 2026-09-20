@@ -1,5 +1,6 @@
 use super::checkpoint::{Checkpoint, CheckpointSave};
 use super::config::TrainingConfig;
+use super::evaluation::Evaluator;
 use super::events::{TrainingCommand, TrainingEvent, TrainingProgress};
 use super::state::{TrainingState, TrainingStatus};
 use crate::dataset::{
@@ -250,6 +251,16 @@ impl Trainer {
         control_file: Option<&Path>,
         events: &Sender<TrainingEvent>,
     ) {
+        self.run_with_evaluator(commands, control_file, events, None);
+    }
+
+    pub fn run_with_evaluator(
+        &mut self,
+        commands: &Receiver<TrainingCommand>,
+        control_file: Option<&Path>,
+        events: &Sender<TrainingEvent>,
+        evaluator: Option<&mut dyn Evaluator>,
+    ) {
         if self.state.status == TrainingStatus::Resuming {
             let _ = events.send(TrainingEvent::Resumed);
         }
@@ -308,6 +319,7 @@ impl Trainer {
         let mut accumulated_loss = 0.0f64;
         let mut accumulation_count = 0usize;
         let mut memory = self.memory_state.clone();
+        let mut evaluator = evaluator;
         let started = now_ms();
 
         loop {
@@ -360,6 +372,24 @@ impl Trainer {
                         );
                     }
                     self.state.epoch += 1;
+                    if let Some(evaluator) = evaluator.as_deref_mut() {
+                        match evaluator.evaluate(&self.model) {
+                            Ok(loss) => {
+                                let _ = append_evaluation(
+                                    &self.run_dir.join("metrics.jsonl"),
+                                    self.state.epoch,
+                                    loss,
+                                );
+                            }
+                            Err(error) => {
+                                let _ = events.send(TrainingEvent::Failed(format!(
+                                    "evaluation failed after epoch {}: {error}",
+                                    self.state.epoch
+                                )));
+                                return;
+                            }
+                        }
+                    }
                     if !self.config.continuous && self.state.epoch >= self.config.epochs {
                         let _ = self.state.transition(TrainingStatus::Completed);
                         self.state.cursor = stream
@@ -638,6 +668,25 @@ fn poll_commands(
         }
     }
     (pause, stop)
+}
+
+fn append_evaluation(path: &Path, epoch: u64, loss: f32) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create metrics dir: {e}"))?;
+    }
+    let line = serde_json::json!({
+        "timestamp_unix_ms": now_ms(),
+        "run_id": "",
+        "state": "Evaluation",
+        "epoch": epoch,
+        "eval_loss": loss
+    });
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("open metrics: {e}"))?;
+    writeln!(file, "{line}").map_err(|e| format!("append evaluation metrics: {e}"))
 }
 
 fn append_metrics(path: &Path, p: &TrainingProgress) -> Result<(), String> {
