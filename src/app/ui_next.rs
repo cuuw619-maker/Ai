@@ -694,21 +694,7 @@ impl AiApplication {
             ui.add_space(8.0);
             ui.horizontal_wrapped(|ui| {
                 if ui.button("START WEB LEARNING").clicked() {
-                    self.dd_stage = "SEARCHING".into();
-                    self.core.last_error = None;
-                    self.core.start_web_learning();
-                    if let Some(manager) = &self.dataset_discovery {
-                        let mut filters = self.discover_search();
-                        filters.topic = "General text".into();
-                        filters.kind = "Any".into();
-                        if let Err(error) = manager.auto_discover(filters) {
-                            self.core.last_error = Some(error);
-                            self.dd_stage = "ERROR".into();
-                        }
-                    } else {
-                        self.dd_stage = "ERROR".into();
-                        self.core.last_error = Some("Dataset Discovery is unavailable.".into());
-                    }
+                    self.start_web_pipeline();
                 }
                 if ui.button("PAUSE WEB").clicked() {
                     self.core.pause_web_learning();
@@ -950,6 +936,26 @@ impl AiApplication {
     fn queue_discovered_download(&mut self, id: &str, allow_large: bool) {
         let Some(manager) = &self.dataset_discovery else { self.core.last_error = Some("Dataset Discovery is unavailable.".into()); return; };
         if let Err(error) = manager.download(id, allow_large) { self.core.last_error = Some(error); }
+    }
+
+    fn start_web_pipeline(&mut self) {
+        self.dd_stage = "SEARCHING".into();
+        self.core.last_error = None;
+        self.core.start_web_learning();
+
+        let Some(manager) = &self.dataset_discovery else {
+            self.dd_stage = "ERROR".into();
+            self.core.last_error = Some("Dataset Discovery is unavailable.".into());
+            return;
+        };
+
+        let mut filters = self.discover_search();
+        filters.topic = "General text".into();
+        filters.kind = "Any".into();
+        if let Err(error) = manager.auto_discover(filters) {
+            self.dd_stage = "ERROR".into();
+            self.core.last_error = Some(error);
+        }
     }
 
     fn select_discovered_dataset_for_training(&mut self, candidate: &DatasetCandidate) {
@@ -2006,7 +2012,11 @@ impl AiApplication {
                         ui.label("5 / 5  START AUTONOMOUS LEARNING");
                         ui.label("Create the random model, then start Web Learning.");
                         if ui.button("START WEB LEARNING").clicked() {
+                            self.core.wizard_open = false;
+                            self.core.config.first_start = false;
+                            self.core.save_config();
                             self.core.command_page(AppPage::WebLearning);
+                            self.start_web_pipeline();
                         }
                     }
                 }
