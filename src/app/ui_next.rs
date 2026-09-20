@@ -511,6 +511,27 @@ impl AiApplication {
 
         ui.add_space(8.0);
         card(ui, |ui| {
+            ui.label(RichText::new("ROUTING ACTIVITY").strong());
+            let total_channels: usize = self.core.model_stats.layers.iter().map(|l| l.active_channels + l.skipped_channels).sum();
+            let active_channels: usize = self.core.model_stats.layers.iter().map(|l| l.active_channels).sum();
+            let skipped_channels: usize = self.core.model_stats.layers.iter().map(|l| l.skipped_channels).sum();
+            let entropy = if self.core.model_stats.layers.is_empty() {
+                0.0
+            } else {
+                self.core.model_stats.layers.iter().map(|l| l.routing_entropy).sum::<f32>() / self.core.model_stats.layers.len() as f32
+            };
+            row_value(ui, "Total channels", &total_channels.to_string());
+            row_value(ui, "Active channels", &active_channels.to_string());
+            row_value(ui, "Active ratio", &format!("{:.1}%", if total_channels == 0 { 0.0 } else { active_channels as f32 * 100.0 / total_channels as f32 }));
+            row_value(ui, "Skipped channels", &skipped_channels.to_string());
+            row_value(ui, "Average routing entropy", &format!("{:.4}", entropy));
+            for layer in &self.core.model_stats.layers {
+                row_value(ui, &format!("AiCell {} blocks", layer.layer), &format!("{} active / {} skipped", layer.active_blocks, layer.skipped_blocks));
+            }
+        });
+
+        ui.add_space(8.0);
+        card(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("TRAINING TIMELINE").strong());
                 if ui.button("EXPORT TRAINING REPORT").clicked() {
