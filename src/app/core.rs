@@ -282,7 +282,9 @@ impl AppCore {
             core.wizard_open = true;
         }
         core.refresh_resources();
-        core.refresh_model();
+        if !core.previous_crash {
+            core.refresh_model();
+        }
         core.refresh_tokenizer();
         core.refresh_dataset();
         core.detect_training_recovery();
@@ -510,7 +512,7 @@ impl AppCore {
             return;
         }
         if let Some(report) = &self.dataset.as_ref().and_then(|d| d.report.clone()) {
-            if !report.is_valid() {
+            if report.errors != 0 {
                 self.last_error = Some("Dataset validation failed; training blocked.".into());
                 return;
             }
