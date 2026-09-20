@@ -1750,7 +1750,7 @@ impl AiApplication {
                 {
                     ui.colored_label(
                         Color32::YELLOW,
-                        "Model, tokenizer and dataset are required.",
+                        "Manual training setup is incomplete. Use WEB LEARNING for automatic data preparation.",
                     );
                 }
                 if self
@@ -1762,7 +1762,7 @@ impl AiApplication {
                 {
                     ui.colored_label(
                         Color32::YELLOW,
-                        "Dataset validation is required before training.",
+                        "Dataset validation has not completed yet. WEB LEARNING validates downloaded data automatically.",
                     );
                 }
                 let model = self.core.model.clone();
