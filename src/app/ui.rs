@@ -188,6 +188,38 @@ impl AiApplication {
         });
         ui.add_space(8.0);
         card(ui, |ui| {
+            ui.label(RichText::new("LIVE WEIGHT CHANGE").strong());
+            row_value(ui, "Parameters", &self.core.model_stats.parameter_count.to_string());
+            row_value(ui, "Updated", &self.core.model_stats.updated_parameters.to_string());
+            row_value(ui, "Average update", &format!("{:.8}", self.core.model_stats.average_update));
+            row_value(ui, "Max update", &format!("{:.8}", self.core.model_stats.max_update));
+            row_value(ui, "Gradient magnitude", &format!("{:.6}", self.core.model_stats.gradient_norm));
+            row_value(ui, "Checksum", &format!("{:016x}", self.core.model_stats.checksum));
+        });
+        ui.add_space(8.0);
+        card(ui, |ui| {
+            ui.label(RichText::new("NETWORK / NEURAL ACTIVITY").strong());
+            if self.core.model_stats.layers.is_empty() {
+                ui.label("Waiting for a real training snapshot.");
+            } else {
+                egui::Grid::new("layer-monitor").striped(true).num_columns(7).show(ui, |ui| {
+                    ui.label("Layer"); ui.label("Act mean"); ui.label("Act min"); ui.label("Act max");
+                    ui.label("Grad"); ui.label("Mem"); ui.label("Weights"); ui.end_row();
+                    for layer in &self.core.model_stats.layers {
+                        ui.label(format!("AiCell {}", layer.layer));
+                        ui.label(format!("{:.4}", layer.activation_mean));
+                        ui.label(format!("{:.4}", layer.activation_min));
+                        ui.label(format!("{:.4}", layer.activation_max));
+                        ui.label(format!("{:.4}", layer.gradient_norm));
+                        ui.label(format!("{:.4}", layer.memory_norm));
+                        ui.label(format!("{:.4}", layer.weight_norm));
+                        ui.end_row();
+                    }
+                });
+            }
+        });
+        ui.add_space(8.0);
+        card(ui, |ui| {
             ui.label(RichText::new("TRAINING ACTIVITY").strong());
             egui::ScrollArea::vertical().max_height(180.0).stick_to_bottom(true).show(ui, |ui| {
                 for event in self.core.events.iter().rev().take(30) {
