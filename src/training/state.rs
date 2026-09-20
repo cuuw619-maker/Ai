@@ -68,3 +68,52 @@ impl TrainingState {
         Ok(())
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::{TrainingState, TrainingStatus};
+    use crate::dataset::DatasetCursor;
+
+    fn state(status: TrainingStatus) -> TrainingState {
+        TrainingState {
+            status,
+            run_id: "run-000001".into(),
+            epoch: 0,
+            step: 0,
+            tokens_seen: 0,
+            tokens_this_run: 0,
+            tokens_this_epoch: 0,
+            cursor: DatasetCursor {
+                dataset_id: "dataset".into(),
+                file_path: "data.txt".into(),
+                file_offset: 0,
+                sample_index: 0,
+                token_position: 0,
+            },
+            random_state: 1,
+        }
+    }
+
+    #[test]
+    fn completed_cannot_resume_without_new_run() {
+        assert!(!TrainingStatus::Completed.can_transition_to(TrainingStatus::Resuming));
+    }
+
+    #[test]
+    fn stopped_can_resume_explicitly() {
+        assert!(TrainingStatus::Stopped.can_transition_to(TrainingStatus::Resuming));
+    }
+
+    #[test]
+    fn running_can_pause_and_stop() {
+        assert!(TrainingStatus::Running.can_transition_to(TrainingStatus::Pausing));
+        assert!(TrainingStatus::Running.can_transition_to(TrainingStatus::Stopping));
+    }
+
+    #[test]
+    fn invalid_transition_is_rejected() {
+        let mut state = state(TrainingStatus::Completed);
+        assert!(state.transition(TrainingStatus::Running).is_err());
+    }
+}
