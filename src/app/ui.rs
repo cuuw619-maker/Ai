@@ -1115,9 +1115,9 @@ fn true_status(training: &super::core::TrainingSnapshot) -> &str {
 fn model_detail(model: Option<&ModelInfo>) -> String {
     model
         .and_then(|m| {
-            m.config.as_ref().map(|config| {
-                format!("{} • {} params", config.architecture, m.parameter_count)
-            })
+            m.config
+                .as_ref()
+                .map(|config| format!("{} • {} params", config.architecture, m.parameter_count))
         })
         .unwrap_or_else(|| "No model".into())
 }
