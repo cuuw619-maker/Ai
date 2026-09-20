@@ -1,5 +1,13 @@
 use crate::neural::Parameter;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ParameterUpdateStats {
+    pub updated_parameters: usize,
+    pub average_absolute_update: f32,
+    pub max_absolute_update: f32,
+}
+
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdamWState {
     pub learning_rate: f32,
@@ -44,6 +52,13 @@ impl AdamW {
     where
         I: IntoIterator<Item = &'a mut Parameter>,
     {
+        let _ = self.step_with_stats(parameters);
+    }
+
+    pub fn step_with_stats<'a, I>(&mut self, parameters: I) -> ParameterUpdateStats
+    where
+        I: IntoIterator<Item = &'a mut Parameter>,
+    {
         let mut params: Vec<&mut Parameter> = parameters.into_iter().collect();
 
         if self.m.is_empty() {
@@ -68,6 +83,9 @@ impl AdamW {
         self.step += 1;
         let bias1 = 1.0 - self.beta1.powi(self.step as i32);
         let bias2 = 1.0 - self.beta2.powi(self.step as i32);
+        let mut update_sum = 0.0f64;
+        let mut updated_parameters = 0usize;
+        let mut max_absolute_update = 0.0f32;
 
         for (index, param) in params.iter_mut().enumerate() {
             for i in 0..param.data.len() {
@@ -76,10 +94,28 @@ impl AdamW {
                 self.v[index][i] = self.beta2 * self.v[index][i] + (1.0 - self.beta2) * g * g;
                 let m_hat = self.m[index][i] / bias1;
                 let v_hat = self.v[index][i] / bias2;
+                let old = param.data[i];
                 param.data[i] -= self.learning_rate
-                    * (m_hat / (v_hat.sqrt() + self.epsilon) + self.weight_decay * param.data[i]);
+                    * (m_hat / (v_hat.sqrt() + self.epsilon) + self.weight_decay * old);
+                let update = (param.data[i] - old).abs();
+                update_sum += update as f64;
+                max_absolute_update = max_absolute_update.max(update);
+                if update > 0.0 {
+                    updated_parameters += 1;
+                }
                 param.grad[i] = 0.0;
             }
+        }
+
+        let parameter_total = params.iter().map(|p| p.len()).sum::<usize>();
+        ParameterUpdateStats {
+            updated_parameters,
+            average_absolute_update: if parameter_total == 0 {
+                0.0
+            } else {
+                (update_sum / parameter_total as f64) as f32
+            },
+            max_absolute_update,
         }
     }
 
