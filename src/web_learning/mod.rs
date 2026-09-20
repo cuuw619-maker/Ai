@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ureq::Agent;
 use url::Url;
 
-const CORPUS_MAGIC: &[u8; 8] = b"AICORPUS\0";
+const CORPUS_MAGIC: &[u8; 8] = b"AICORPUS";
 const CORPUS_VERSION: u32 = 1;
 const USER_AGENT: &str = "AiNet-WebLearner/1.0";
 const DEFAULT_MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
@@ -605,6 +605,12 @@ impl SourceRegistry {
     }
 }
 
+#[derive(Clone, Debug)]
+struct CacheEntry {
+    etag: Option<String>,
+    last_modified: Option<String>,
+}
+
 pub struct CorpusStore { root: PathBuf, db_path: PathBuf, corpus_path: PathBuf }
 impl CorpusStore {
     pub fn open(root: &Path) -> Result<Self, String> {
@@ -926,7 +932,9 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
         }
 
         if !paused && pending.is_empty() && active.is_empty() && Instant::now() >= next_scan {
-            pending = registry.discover_matching(&settings).into_iter().sort_by_priority().collect::<VecDeque<_>>();
+            let mut sources = registry.discover_matching(&settings);
+            sources.sort_by_priority();
+            pending = sources.into_iter().collect::<VecDeque<_>>();
             next_scan = Instant::now() + Duration::from_secs(settings.scan_interval_secs);
         }
 

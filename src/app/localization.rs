@@ -52,7 +52,7 @@ pub fn text(language: &str, key: &str) -> &'static str {
                 "SETTINGS" => "SETTINGS",
                 "SYSTEM" => "SYSTEM",
                 "WEB LEARNING" => "WEB LEARNING",
-                _ => key,
+                _ => "",
             },
             _ => key,
         }

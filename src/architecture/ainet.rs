@@ -516,37 +516,37 @@ impl AiNet {
     }
 
     pub fn parameters_mut(&mut self) -> Vec<&mut Parameter> {
-        let mut result = Vec::with_capacity(self.config.layer_count * 13 + 3);
-        result.push(&mut self.embedding);
+        let mut raw = Vec::<*mut Parameter>::with_capacity(self.config.layer_count * 13 + 3);
+        raw.push(&mut self.embedding);
         if let Some(p) = &mut self.input_projection_w {
-            result.push(p);
+            raw.push(p);
         }
         if let Some(p) = &mut self.input_projection_b {
-            result.push(p);
+            raw.push(p);
         }
-
         for cell in &mut self.cells {
-            result.push(&mut cell.w_keep);
-            result.push(&mut cell.u_keep);
-            result.push(&mut cell.b_keep);
-            result.push(&mut cell.w_write);
-            result.push(&mut cell.u_write);
-            result.push(&mut cell.b_write);
-            result.push(&mut cell.w_candidate);
-            result.push(&mut cell.u_candidate);
-            result.push(&mut cell.b_candidate);
-            result.push(&mut cell.w_out);
-            result.push(&mut cell.b_out);
+            raw.push(&mut cell.w_keep);
+            raw.push(&mut cell.u_keep);
+            raw.push(&mut cell.b_keep);
+            raw.push(&mut cell.w_write);
+            raw.push(&mut cell.u_write);
+            raw.push(&mut cell.b_write);
+            raw.push(&mut cell.w_candidate);
+            raw.push(&mut cell.u_candidate);
+            raw.push(&mut cell.b_candidate);
+            raw.push(&mut cell.w_out);
+            raw.push(&mut cell.b_out);
         }
-
-        result.push(&mut self.output_w);
-        result.push(&mut self.output_b);
-
+        raw.push(&mut self.output_w);
+        raw.push(&mut self.output_b);
         for cell in &mut self.cells {
-            result.push(&mut cell.router_w);
-            result.push(&mut cell.router_b);
+            raw.push(&mut cell.router_w);
+            raw.push(&mut cell.router_b);
         }
-        result
+        // Each pointer is created from a distinct Parameter field above and
+        // remains valid for the returned vector because no vector reallocation
+        // or mutation of self occurs while the caller uses these references.
+        unsafe { raw.into_iter().map(|ptr| &mut *ptr).collect() }
     }
 
     pub fn train_step(

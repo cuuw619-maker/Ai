@@ -729,7 +729,7 @@ impl AppCore {
         }
 
         self.dataset = Some(DatasetInfo {
-            path: snapshot,
+            path: snapshot.clone(),
             format: DatasetFormat::Txt,
             metadata_id: Some("web-corpus".into()),
             report: None,
