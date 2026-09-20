@@ -1,3 +1,4 @@
+mod evaluation;
 mod checkpoint;
 mod config;
 mod events;
@@ -6,6 +7,7 @@ mod trainer;
 mod worker;
 
 pub use checkpoint::{Checkpoint, CheckpointData, CheckpointSave};
+pub use evaluation::{Evaluator, TinyEvaluator};
 pub use config::TrainingConfig;
 pub use events::{TrainingCommand, TrainingEvent, TrainingProgress};
 pub use state::{TrainingState, TrainingStatus};
