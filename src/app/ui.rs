@@ -968,11 +968,7 @@ impl AiApplication {
                     "Threads",
                     &self.core.config.training.max_cpu_threads.to_string(),
                 );
-                row_value(
-                    ui,
-                    "Batch",
-                    "1",
-                );
+                row_value(ui, "Batch", "1");
                 row_value(
                     ui,
                     "Accumulation",
