@@ -27,6 +27,9 @@ pub struct TrainingProgress {
 #[derive(Clone, Debug)]
 pub struct LayerTrainingStats {
     pub layer: usize,
+    pub activation_mean: f32,
+    pub activation_min: f32,
+    pub activation_max: f32,
     pub weight_norm: f32,
     pub gradient_norm: f32,
     pub memory_norm: f32,
