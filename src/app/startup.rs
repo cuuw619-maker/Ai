@@ -13,7 +13,6 @@ pub fn show_startup_error(details: &str, log_path: &Path) {
         .with_title("Ai failed to start");
     let options = eframe::NativeOptions {
         viewport,
-        centered: true,
         ..Default::default()
     };
 
