@@ -543,9 +543,8 @@ impl AiNet {
             raw.push(&mut cell.router_w);
             raw.push(&mut cell.router_b);
         }
-        // Each pointer is created from a distinct Parameter field above and
-        // remains valid for the returned vector because no vector reallocation
-        // or mutation of self occurs while the caller uses these references.
+        // SAFETY: every pointer is derived from a distinct Parameter field and no
+        // mutation or reallocation of self occurs while the returned references are held.
         unsafe { raw.into_iter().map(|ptr| &mut *ptr).collect() }
     }
 

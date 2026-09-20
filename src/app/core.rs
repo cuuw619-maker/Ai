@@ -604,10 +604,10 @@ impl AppCore {
                     self.log_event(format!("Web Learning: {:?}", status));
                 }
                 WebEvent::Stats(stats) => {
-                    self.web_stats = stats;
+                    self.web_stats = stats.clone();
                     self.logger.web(format!(
                         "stats sources={} scanned={} accepted={} rejected={} duplicates={} queued_tokens={}",
-                        stats.sources.to_string(),
+                        stats.sources,
                         stats.pages_scanned,
                         stats.pages_accepted,
                         stats.pages_rejected,
@@ -1384,6 +1384,7 @@ impl AppCore {
     }
 
     fn apply_model_snapshot(&mut self, snapshot: ModelTrainingSnapshot) {
+        let layer_count = snapshot.layers.len();
         self.model_stats = ModelStatsSnapshot {
             parameter_count: snapshot.parameter_count,
             checksum: snapshot.checksum,
@@ -1421,7 +1422,7 @@ impl AppCore {
             snapshot.checksum,
             snapshot.parameter_count,
             snapshot.updated_parameters,
-            snapshot.layers.len()
+            layer_count
         ));
         for layer in &self.model_stats.layers {
             self.logger.router(format!(

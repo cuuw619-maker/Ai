@@ -845,7 +845,6 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
     let _ = event_tx.send(WebEvent::Stats(stats.clone()));
     let _ = event_tx.send(WebEvent::Sources(registry.list().to_vec()));
 
-    let mut status = WebStatus::Stopped;
     let mut paused = true;
     let mut next_scan = Instant::now();
 
@@ -854,20 +853,17 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
             match command {
                 WebCommand::Start | WebCommand::Resume => {
                     paused = false;
-                    status = WebStatus::Running;
-                    let _ = event_tx.send(WebEvent::Status(status));
+                    let _ = event_tx.send(WebEvent::Status(WebStatus::Running));
                     next_scan = Instant::now();
                 }
                 WebCommand::Pause => {
                     paused = true;
-                    status = WebStatus::Paused;
-                    let _ = event_tx.send(WebEvent::Status(status));
+                    let _ = event_tx.send(WebEvent::Status(WebStatus::Paused));
                 }
                 WebCommand::ScanNow => { next_scan = Instant::now(); }
                 WebCommand::Stop => {
                     paused = true;
-                    status = WebStatus::Stopping;
-                    let _ = event_tx.send(WebEvent::Status(status));
+                    let _ = event_tx.send(WebEvent::Status(WebStatus::Stopping));
                     for handle in active.drain(..) { let _ = handle.join(); }
                     let _ = event_tx.send(WebEvent::Status(WebStatus::Stopped));
                     return;
