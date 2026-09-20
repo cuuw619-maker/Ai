@@ -1,4 +1,23 @@
 #![allow(clippy::needless_range_loop)]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParameterDType {
+    F32 = 0,
+    F16 = 1,
+    Q8 = 2,
+}
+
+impl ParameterDType {
+    fn from_u8(value: u8) -> Result<Self, String> {
+        match value {
+            0 => Ok(Self::F32),
+            1 => Ok(Self::F16),
+            2 => Ok(Self::Q8),
+            _ => Err(format!("unknown parameter dtype {value}")),
+        }
+    }
+}
+
 use crate::neural::Parameter;
 use std::fs;
 use std::path::Path;
@@ -896,7 +915,7 @@ impl AiNet {
         w.u64(params.len() as u64);
         for (name, data) in params {
             w.str(&name);
-            w.u8(0);
+            w.u8(ParameterDType::F32 as u8);
             w.u64(data.len() as u64);
             for value in data {
                 w.f32(value);
@@ -928,9 +947,9 @@ impl AiNet {
             if &name != expected_name {
                 return Err(format!("parameter order/name mismatch: {name}"));
             }
-            let dtype = r.u8()?;
-            if dtype != 0 {
-                return Err(format!("unsupported parameter dtype {dtype}"));
+            let dtype = ParameterDType::from_u8(r.u8()?)?;
+            if dtype != ParameterDType::F32 {
+                return Err(format!("parameter dtype {:?} is not implemented yet", dtype));
             }
             let len = r.u64()? as usize;
             if len != expected_data.len() {
