@@ -125,6 +125,7 @@ pub enum DatasetEvent {
         id: String,
         samples: Vec<String>,
     },
+    Preparing(DatasetCandidate),
     Ready(DatasetCandidate),
     UsedForTraining(DatasetCandidate),
     Removed(String),
@@ -623,6 +624,7 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
                                 candidate.download_url.is_some()
                                     && candidate.size_bytes.unwrap_or(u64::MAX)
                                         <= DEFAULT_MAX_DOWNLOAD_BYTES
+                                    && auto_format_supported(&candidate.format)
                             })
                             .max_by(|a, b| {
                                 a.quality_score
@@ -638,6 +640,11 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
                                 let _ = events.send(DatasetEvent::Candidate(candidate.clone()));
                                 download_queue.push_back((id, false, true));
                             }
+                        } else {
+                            let _ = events.send(DatasetEvent::Error {
+                                id: None,
+                                message: "No usable public dataset was found for automatic Web Learning.".into(),
+                            });
                         }
                     }
                     let _ = events.send(DatasetEvent::SearchCompleted(total));
@@ -879,12 +886,22 @@ fn download_candidate(
     Ok(candidate)
 }
 
+fn auto_format_supported(format: &str) -> bool {
+    matches!(
+        format.to_ascii_lowercase().as_str(),
+        "txt" | "text" | "json" | "jsonl" | "csv" | "xml+bzip2"
+    )
+}
+
 fn prepare_candidate(
     root: &Path,
     candidate: &DatasetCandidate,
-    _events: &Sender<DatasetEvent>,
+    events: &Sender<DatasetEvent>,
 ) -> Result<DatasetCandidate, String> {
     let input = candidate.original_path.clone().ok_or("Download the dataset first.")?;
+    let mut preparing = candidate.clone();
+    preparing.state = DatasetState::Preparing;
+    let _ = events.send(DatasetEvent::Preparing(preparing));
     let dir = root.join("datasets/discovery").join(safe_fs_id(&candidate.id));
     fs::create_dir_all(&dir).map_err(|e| format!("prepare dataset directory: {e}"))?;
     let output = dir.join("prepared.aicorpus");
