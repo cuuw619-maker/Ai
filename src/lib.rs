@@ -1,6 +1,7 @@
 pub mod app;
 pub mod architecture;
 pub mod dataset;
+pub mod dataset_discovery;
 pub mod error;
 pub mod inference;
 pub mod model;
