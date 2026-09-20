@@ -88,9 +88,10 @@ impl AppConfig {
             Ok(v) => v,
             Err(e) => {
                 preserve_broken(&path)?;
+                preserve_broken(&path)?;
                 let value = Self::default();
                 value.save(root)?;
-                return Err(format!("config read failed; safe defaults created: {e}"));
+                return Ok((value, true));
             }
         };
         match toml::from_str::<Self>(&content) {
@@ -109,7 +110,11 @@ impl AppConfig {
         let content = toml::to_string_pretty(self).map_err(|e| format!("serialize config: {e}"))?;
         let temp = root.join("config.toml.tmp");
         fs::write(&temp, content).map_err(|e| format!("write config temp: {e}"))?;
-        fs::rename(&temp, root.join("config.toml")).map_err(|e| format!("replace config: {e}"))
+        let target = root.join("config.toml");
+        if target.exists() {
+            let _ = fs::remove_file(&target);
+        }
+        fs::rename(&temp, target).map_err(|e| format!("replace config: {e}"))
     }
 }
 
