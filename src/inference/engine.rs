@@ -129,6 +129,38 @@ impl InferenceEngine {
         Ok(result)
     }
 
+    pub fn generate_stream_cancelled<F: FnMut(u32, &[u32]) -> bool>(
+        &mut self,
+        prompt: &[u32],
+        eos_id: u32,
+        max_new_tokens: usize,
+        config: &GenerationConfig,
+        mut on_token: F,
+    ) -> Result<Vec<u32>, String> {
+        if prompt.is_empty() {
+            return Err("generation prompt must not be empty".into());
+        }
+        self.reset()?;
+        let mut logits = Vec::new();
+        for token in prompt {
+            logits = self.feed_token(*token)?;
+        }
+
+        let mut result = prompt.to_vec();
+        for _ in 0..max_new_tokens {
+            let next = sample(&logits, config, &mut self.rng) as u32;
+            result.push(next);
+            if !on_token(next, &result) {
+                break;
+            }
+            if next == eos_id {
+                break;
+            }
+            logits = self.feed_token(next)?;
+        }
+        Ok(result)
+    }
+
     pub fn set_generation_seed(&mut self, seed: u64) {
         self.rng = GenerationRng::new(seed ^ 0x9E3779B97F4A7C15);
     }
