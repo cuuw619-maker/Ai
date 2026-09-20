@@ -70,12 +70,13 @@ pub struct ModelInfo {
     pub parameter_count: usize,
     pub checksum: u64,
     pub file_size: u64,
+    pub trained: bool,
     pub loaded_from_previous: bool,
 }
 
 impl ModelInfo {
     pub fn status(&self) -> &'static str {
-        "LOADED"
+        if self.trained { "TRAINED" } else { "UNTRAINED" }
     }
 }
 
@@ -357,6 +358,8 @@ impl AppCore {
         let path = PathBuf::from(path_string);
         match load_model_info(&path) {
             Ok(info) => {
+                let mut info = info;
+                info.trained = self.model.as_ref().map(|m| m.trained).unwrap_or_else(|| model_training_completed(&self.root, &info));
                 self.model = Some(info);
                 self.logger.app(format!("model loaded: {}", path.display()));
             }
@@ -1238,6 +1241,19 @@ fn load_model_info(path: &Path) -> Result<ModelInfo, String> {
         file_size,
         loaded_from_previous: false,
     })
+}
+
+fn model_training_completed(root: &Path, info: &ModelInfo) -> bool {
+    let path = root.join("training-status.json");
+    let Ok(content) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(state) = serde_json::from_str::<crate::training::TrainingState>(&content) else {
+        return false;
+    };
+    state.status == TrainingStatus::Completed
+        && (info.config.as_ref().map(|config| config.model_id.as_str()) == Some(state.model_id.as_str())
+            || state.model_id.is_empty())
 }
 
 fn previous_path(path: &Path) -> PathBuf {
