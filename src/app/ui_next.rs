@@ -9,7 +9,7 @@ use eframe::egui::{
     self, Align, Align2, Color32, FontId, Layout, RichText, Stroke, StrokeKind, TextStyle, Ui, Vec2,
 };
 use std::collections::VecDeque;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct AiApplication {
     pub core: AppCore,
@@ -46,6 +46,8 @@ pub struct AiApplication {
     dd_progress: Option<(String, u64, Option<u64>)>,
     dd_preview: Option<(String, Vec<String>)>,
     dd_pending_approval: Option<(String, u64, u64)>,
+    last_rendered_page: AppPage,
+    page_transition_until: Instant,
 }
 
 impl AiApplication {
@@ -103,6 +105,8 @@ impl AiApplication {
             dd_progress: None,
             dd_preview: None,
             dd_pending_approval: None,
+            last_rendered_page: core.page,
+            page_transition_until: Instant::now(),
         }
     }
 
@@ -1875,6 +1879,10 @@ impl AiApplication {
 impl eframe::App for AiApplication {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.core.refresh();
+        if self.last_rendered_page != self.core.page {
+            self.last_rendered_page = self.core.page;
+            self.page_transition_until = Instant::now() + Duration::from_millis(180);
+        }
         self.poll_dataset_discovery();
         self.core
             .update_training_session_marker(&mut self.last_finalized_run);
@@ -1883,6 +1891,8 @@ impl eframe::App for AiApplication {
         self.nav(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            let remaining = self.page_transition_until.saturating_duration_since(Instant::now());
+            if remaining > Duration::ZERO { ui.add_space((remaining.as_secs_f32() / 0.18).clamp(0.0, 1.0) * 7.0); }
             self.header(ui);
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
@@ -1932,8 +1942,8 @@ impl eframe::App for AiApplication {
             });
         }
 
-        let repaint = if self.core.is_trainer_running() {
-            100
+        let repaint = if self.core.is_trainer_running() || Instant::now() < self.page_transition_until {
+            50
         } else {
             self.core.config.ui_update_ms.clamp(250, 1000)
         };
