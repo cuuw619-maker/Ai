@@ -68,7 +68,7 @@ impl ModelInfo {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct TrainingSnapshot {
     pub state: TrainingStatus,
     pub run_id: String,
@@ -86,6 +86,29 @@ pub struct TrainingSnapshot {
     pub checkpoint: Option<PathBuf>,
     pub initial_checksum: Option<u64>,
     pub final_checksum: Option<u64>,
+}
+
+impl Default for TrainingSnapshot {
+    fn default() -> Self {
+        Self {
+            state: TrainingStatus::Idle,
+            run_id: String::new(),
+            epoch: 0,
+            step: 0,
+            tokens: 0,
+            loss: None,
+            avg_loss: None,
+            best_loss: None,
+            tokens_per_second: 0.0,
+            gradient_norm: 0.0,
+            learning_rate: 0.0,
+            elapsed_seconds: 0.0,
+            started_at_ms: None,
+            checkpoint: None,
+            initial_checksum: None,
+            final_checksum: None,
+        }
+    }
 }
 
 impl TrainingSnapshot {
@@ -602,7 +625,14 @@ impl AppCore {
             "application": "Ai",
             "version": env!("CARGO_PKG_VERSION"),
             "architecture": "AiNet v1.1",
-            "model": self.model,
+            "model": self.model.as_ref().map(|m| serde_json::json!({
+                "path": m.path,
+                "parameter_count": m.parameter_count,
+                "checksum": format!("{:016x}", m.checksum),
+                "file_size": m.file_size,
+                "model_id": m.config.as_ref().map(|c| c.model_id.clone()),
+                "architecture": m.config.as_ref().map(|c| c.architecture.clone()),
+            }));
             "dataset": self.dataset.as_ref().map(|d| serde_json::json!({
                 "path": d.path,
                 "format": format!("{:?}", d.format),
@@ -1013,7 +1043,7 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
         if report.errors != 0 || report.samples != 2 { return Err(format!("unexpected dataset report: {:?}", report)); }
         Ok(())
     };
-    push_test("Dataset validation", dataset_test());
+    push_test(&mut results, "Dataset validation", dataset_test());
 
     let checkpoint = || -> Result<(), String> {
         let dir = root.join("self-test-checkpoint");
