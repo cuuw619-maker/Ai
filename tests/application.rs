@@ -68,9 +68,13 @@ version=test
 fn crash_marker_is_detected_on_startup() {
     let root = temp_root("marker");
     fs::create_dir_all(&root).unwrap();
-    fs::write(root.join("crash.marker"), "panic_unix_ms=1
+    fs::write(
+        root.join("crash.marker"),
+        "panic_unix_ms=1
 version=test
-").unwrap();
+",
+    )
+    .unwrap();
 
     let logger = Logger::new(root.join("logs")).unwrap();
     let context = Arc::new(Mutex::new(CrashContext::default()));

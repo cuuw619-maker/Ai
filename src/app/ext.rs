@@ -61,9 +61,7 @@ impl AppCore {
             | TrainingStatus::Pausing
             | TrainingStatus::Resuming
             | TrainingStatus::Saving => "TRAINING",
-            TrainingStatus::Paused | TrainingStatus::Stopping | TrainingStatus::Stopped => {
-                "PAUSED"
-            }
+            TrainingStatus::Paused | TrainingStatus::Stopping | TrainingStatus::Stopped => "PAUSED",
             TrainingStatus::Completed => "TRAINED",
             TrainingStatus::Failed => "FAILED",
             TrainingStatus::Idle => "UNTRAINED",
@@ -205,7 +203,9 @@ impl AppCore {
             .map(|entries| {
                 entries
                     .filter_map(Result::ok)
-                    .filter(|e| e.path().extension().and_then(|v| v.to_str()) == Some("aicheckpoint"))
+                    .filter(|e| {
+                        e.path().extension().and_then(|v| v.to_str()) == Some("aicheckpoint")
+                    })
                     .count()
             })
             .unwrap_or(0);
@@ -248,7 +248,9 @@ impl AppCore {
             .map_err(|e| e.to_string())
             .and_then(|bytes| fs::write(&path, bytes).map_err(|e| e.to_string()))
         {
-            Ok(()) => self.logger.training(format!("Session summary written: {}", path.display())),
+            Ok(()) => self
+                .logger
+                .training(format!("Session summary written: {}", path.display())),
             Err(error) => self.last_error = Some(format!("write session summary: {error}")),
         }
     }

@@ -19,12 +19,7 @@ pub fn show_startup_error(details: &str, log_path: &Path) {
     let result = eframe::run_native(
         "Ai failed to start",
         options,
-        Box::new(move |_cc| {
-            Ok(Box::new(StartupErrorApp {
-                details,
-                log_path,
-            }))
-        }),
+        Box::new(move |_cc| Ok(Box::new(StartupErrorApp { details, log_path }))),
     );
 
     if result.is_err() {

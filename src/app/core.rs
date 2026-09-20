@@ -363,7 +363,11 @@ impl AppCore {
         match load_model_info(&path) {
             Ok(info) => {
                 let mut info = info;
-                info.trained = self.model.as_ref().map(|m| m.trained).unwrap_or_else(|| model_training_completed(&self.root, &info));
+                info.trained = self
+                    .model
+                    .as_ref()
+                    .map(|m| m.trained)
+                    .unwrap_or_else(|| model_training_completed(&self.root, &info));
                 self.model = Some(info);
                 self.logger.app(format!("model loaded: {}", path.display()));
             }
@@ -1256,7 +1260,8 @@ fn model_training_completed(root: &Path, info: &ModelInfo) -> bool {
         return false;
     };
     state.status == TrainingStatus::Completed
-        && (info.config.as_ref().map(|config| config.model_id.as_str()) == Some(state.model_id.as_str())
+        && (info.config.as_ref().map(|config| config.model_id.as_str())
+            == Some(state.model_id.as_str())
             || state.model_id.is_empty())
 }
 

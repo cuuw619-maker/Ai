@@ -2,8 +2,7 @@ use super::core::{AppCore, AppPage, ModelInfo};
 use crate::inference::GenerationConfig;
 use crate::training::TrainingStatus;
 use eframe::egui::{
-    self, Align, Align2, Color32, FontId, Layout, RichText, Stroke, StrokeKind, TextStyle, Ui,
-    Vec2,
+    self, Align, Align2, Color32, FontId, Layout, RichText, Stroke, StrokeKind, TextStyle, Ui, Vec2,
 };
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -78,15 +77,20 @@ impl AiApplication {
                     ui.heading(RichText::new("Ai").size(28.0).strong());
                     ui.label(RichText::new("LAB").small());
                 });
-                ui.label(RichText::new("Own Neural Engine").color(Color32::from_rgb(120, 180, 255)));
+                ui.label(
+                    RichText::new("Own Neural Engine").color(Color32::from_rgb(120, 180, 255)),
+                );
                 ui.add_space(14.0);
 
                 for page in AppPage::ALL {
                     let selected = self.core.page == page;
-                    let button = egui::Button::new(
-                        RichText::new(page.name()).strong().size(if selected { 13.0 } else { 12.0 }),
-                    )
-                    .selected(selected);
+                    let button =
+                        egui::Button::new(RichText::new(page.name()).strong().size(if selected {
+                            13.0
+                        } else {
+                            12.0
+                        }))
+                        .selected(selected);
                     if ui.add_sized([172.0, 34.0], button).clicked() {
                         self.core.command_page(page);
                         self.core.save_config();
@@ -101,7 +105,11 @@ impl AiApplication {
                 ui.add_space(6.0);
                 status_line(ui, "Model", self.core.model_status_label());
                 status_line(ui, "Train", self.core.training.label());
-                status_line(ui, "CPU", &format!("{:.1}%", self.core.resources.cpu_percent));
+                status_line(
+                    ui,
+                    "CPU",
+                    &format!("{:.1}%", self.core.resources.cpu_percent),
+                );
                 status_line(
                     ui,
                     "RAM",
@@ -151,11 +159,7 @@ impl AiApplication {
     }
 
     fn home(&mut self, ui: &mut Ui) {
-        ui.label(
-            RichText::new("Own Neural Engine")
-                .size(34.0)
-                .strong(),
-        );
+        ui.label(RichText::new("Own Neural Engine").size(34.0).strong());
         ui.label("A native Windows laboratory for the project-owned AiNet v1.1.");
         ui.add_space(12.0);
 
@@ -312,9 +316,7 @@ impl AiApplication {
                     if ui.button("RESUME").clicked() {
                         self.core.resume_training();
                     }
-                } else if self.core.worker.is_none()
-                    && ui.button("START TRAINING").clicked()
-                {
+                } else if self.core.worker.is_none() && ui.button("START TRAINING").clicked() {
                     self.start_training_dialog = true;
                 }
             });
@@ -353,18 +355,18 @@ impl AiApplication {
                     row_value(ui, "Epoch", &self.core.training.epoch.to_string());
                     row_value(ui, "Step", &self.core.training.step.to_string());
                     row_value(ui, "Tokens", &self.core.training.tokens.to_string());
-                    row_value(ui, "Average loss", &loss_string(self.core.training.avg_loss));
+                    row_value(
+                        ui,
+                        "Average loss",
+                        &loss_string(self.core.training.avg_loss),
+                    );
                     row_value(ui, "Best loss", &loss_string(self.core.training.best_loss));
                     row_value(
                         ui,
                         "Tokens/sec",
                         &format!("{:.2}", self.core.training.tokens_per_second),
                     );
-                    row_value(
-                        ui,
-                        "Steps/sec",
-                        &steps_per_second(&self.core.training),
-                    );
+                    row_value(ui, "Steps/sec", &steps_per_second(&self.core.training));
                     row_value(
                         ui,
                         "Gradient norm",
@@ -569,16 +571,19 @@ impl AiApplication {
             let sequence = self.new_model_sequence.parse::<usize>().unwrap_or(0);
             let parameters = estimate_parameters(vocab, embedding, hidden, layers);
             let memory = parameters.saturating_mul(4);
-            let training = estimate_training_memory(
-                parameters,
-                hidden,
-                layers,
-                sequence.max(1),
-            );
+            let training = estimate_training_memory(parameters, hidden, layers, sequence.max(1));
             ui.add_space(6.0);
             row_value(ui, "Estimated parameters", &parameters.to_string());
-            row_value(ui, "Estimated model RAM", &AppCore::format_mb(memory as u64));
-            row_value(ui, "Estimated training RAM", &AppCore::format_mb(training as u64));
+            row_value(
+                ui,
+                "Estimated model RAM",
+                &AppCore::format_mb(memory as u64),
+            );
+            row_value(
+                ui,
+                "Estimated training RAM",
+                &AppCore::format_mb(training as u64),
+            );
             if ui.button("CREATE RANDOM MODEL").clicked() {
                 let seed = self.new_model_seed.parse::<u64>().unwrap_or(1);
                 self.core.create_model(
@@ -681,7 +686,11 @@ impl AiApplication {
             row_value(
                 ui,
                 "Special tokens",
-                if self.tokenizer_vocab.is_some() { "7" } else { "—" },
+                if self.tokenizer_vocab.is_some() {
+                    "7"
+                } else {
+                    "—"
+                },
             );
             if let Some(path) = &self.core.tokenizer_path {
                 row_value(ui, "File", &path.display().to_string());
@@ -705,7 +714,9 @@ impl AiApplication {
                 ui,
                 "Total RAM",
                 &AppCore::format_mb(
-                    self.core.resources.ram_used_bytes
+                    self.core
+                        .resources
+                        .ram_used_bytes
                         .saturating_add(self.core.resources.ram_available_bytes),
                 ),
             );
@@ -758,7 +769,10 @@ impl AiApplication {
     fn logs(&mut self, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
             for name in ["APP LOG", "TRAINING LOG", "INFERENCE LOG", "CRASH LOG"] {
-                if ui.selectable_label(self.selected_log == name, name).clicked() {
+                if ui
+                    .selectable_label(self.selected_log == name, name)
+                    .clicked()
+                {
                     self.selected_log = name.to_string();
                 }
             }
@@ -776,7 +790,10 @@ impl AiApplication {
 
         if self.confirm_clear_logs {
             card(ui, |ui| {
-                ui.colored_label(Color32::YELLOW, "Only rotated logs (.1 / .2) will be removed.");
+                ui.colored_label(
+                    Color32::YELLOW,
+                    "Only rotated logs (.1 / .2) will be removed.",
+                );
                 ui.horizontal(|ui| {
                     if ui.button("CONFIRM CLEAR").clicked() {
                         match self.core.clear_rotated_logs() {
@@ -819,10 +836,8 @@ impl AiApplication {
                     ui.end_row();
                     ui.label("Gradient accumulation");
                     ui.add(
-                        egui::DragValue::new(
-                            &mut self.core.config.training.gradient_accumulation,
-                        )
-                        .range(1..=128),
+                        egui::DragValue::new(&mut self.core.config.training.gradient_accumulation)
+                            .range(1..=128),
                     );
                     ui.end_row();
                     ui.label("Sequence");
@@ -854,8 +869,7 @@ impl AiApplication {
                     ui.end_row();
                     ui.label("UI update ms");
                     ui.add(
-                        egui::DragValue::new(&mut self.core.config.ui_update_ms)
-                            .range(500..=5000),
+                        egui::DragValue::new(&mut self.core.config.ui_update_ms).range(500..=5000),
                     );
                     ui.end_row();
                     ui.label("Autosave");
@@ -943,11 +957,7 @@ impl AiApplication {
                 .map(|n| n.get())
                 .unwrap_or(0);
             row_value(ui, "Logical CPU threads", &logical.to_string());
-            row_value(
-                ui,
-                "CPU temperature",
-                "unavailable",
-            );
+            row_value(ui, "CPU temperature", "unavailable");
             row_value(
                 ui,
                 "Performance profile",
@@ -962,12 +972,7 @@ impl AiApplication {
         ui.add_space(8.0);
         card(ui, |ui| {
             ui.label(RichText::new("DIAGNOSTICS").strong());
-            subsystem(
-                ui,
-                "Application",
-                true,
-                "native UI is running",
-            );
+            subsystem(ui, "Application", true, "native UI is running");
             subsystem(
                 ui,
                 "Neural engine",
@@ -1054,7 +1059,15 @@ impl AiApplication {
             });
         } else {
             card(ui, |ui| {
-                status_line(ui, "Inference", if self.core.chat_generating { "GENERATING" } else { "READY" });
+                status_line(
+                    ui,
+                    "Inference",
+                    if self.core.chat_generating {
+                        "GENERATING"
+                    } else {
+                        "READY"
+                    },
+                );
                 status_line(ui, "Model", self.core.model_status_label());
             });
         }
@@ -1144,7 +1157,11 @@ impl AiApplication {
             top_p: self.top_p.parse().unwrap_or(0.9).clamp(0.01, 1.0),
             greedy: self.deterministic,
         };
-        let max_tokens = self.max_tokens.parse::<usize>().unwrap_or(64).clamp(1, 4096);
+        let max_tokens = self
+            .max_tokens
+            .parse::<usize>()
+            .unwrap_or(64)
+            .clamp(1, 4096);
         let seed = self.generation_seed.parse::<u64>().unwrap_or(1);
         self.core.generate_chat(config, max_tokens, seed);
     }
@@ -1160,8 +1177,14 @@ impl AiApplication {
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                if self.core.model.is_none() || self.core.dataset.is_none() || self.core.tokenizer_path.is_none() {
-                    ui.colored_label(Color32::YELLOW, "Model, tokenizer and dataset are required.");
+                if self.core.model.is_none()
+                    || self.core.dataset.is_none()
+                    || self.core.tokenizer_path.is_none()
+                {
+                    ui.colored_label(
+                        Color32::YELLOW,
+                        "Model, tokenizer and dataset are required.",
+                    );
                 }
                 if self
                     .core
@@ -1170,7 +1193,10 @@ impl AiApplication {
                     .and_then(|d| d.report.as_ref())
                     .is_none()
                 {
-                    ui.colored_label(Color32::YELLOW, "Dataset validation is required before training.");
+                    ui.colored_label(
+                        Color32::YELLOW,
+                        "Dataset validation is required before training.",
+                    );
                 }
                 let model = self.core.model.clone();
                 if let Some(model) = model {
@@ -1190,19 +1216,56 @@ impl AiApplication {
                     card(ui, |ui| {
                         row_value(ui, "Model", &model.path.display().to_string());
                         row_value(ui, "Parameters", &model.parameter_count.to_string());
-                        row_value(ui, "Model RAM", &AppCore::format_mb(parameter_memory as u64));
-                        row_value(ui, "Training RAM", &AppCore::format_mb(training_memory as u64));
-                        row_value(ui, "Available RAM", &AppCore::format_mb(self.core.resources.ram_available_bytes));
-                        row_value(ui, "Sequence", &self.core.config.training.sequence_length.to_string());
-                        row_value(ui, "Threads", &self.core.config.training.max_cpu_threads.to_string());
+                        row_value(
+                            ui,
+                            "Model RAM",
+                            &AppCore::format_mb(parameter_memory as u64),
+                        );
+                        row_value(
+                            ui,
+                            "Training RAM",
+                            &AppCore::format_mb(training_memory as u64),
+                        );
+                        row_value(
+                            ui,
+                            "Available RAM",
+                            &AppCore::format_mb(self.core.resources.ram_available_bytes),
+                        );
+                        row_value(
+                            ui,
+                            "Sequence",
+                            &self.core.config.training.sequence_length.to_string(),
+                        );
+                        row_value(
+                            ui,
+                            "Threads",
+                            &self.core.config.training.max_cpu_threads.to_string(),
+                        );
                         row_value(ui, "Batch", "1 micro-batch");
-                        row_value(ui, "Learning rate", &self.core.config.training.learning_rate.to_string());
+                        row_value(
+                            ui,
+                            "Learning rate",
+                            &self.core.config.training.learning_rate.to_string(),
+                        );
                         row_value(ui, "Epochs", &self.core.config.training.epochs.to_string());
-                        row_value(ui, "Checkpoint", &self.core.config.training.checkpoint_interval_steps.to_string());
+                        row_value(
+                            ui,
+                            "Checkpoint",
+                            &self
+                                .core
+                                .config
+                                .training
+                                .checkpoint_interval_steps
+                                .to_string(),
+                        );
                     });
-                    let danger = training_memory as u64 > self.core.resources.ram_available_bytes.saturating_mul(8) / 10;
+                    let danger = training_memory as u64
+                        > self.core.resources.ram_available_bytes.saturating_mul(8) / 10;
                     if danger {
-                        ui.colored_label(Color32::YELLOW, "Warning: estimated training memory is close to available RAM.");
+                        ui.colored_label(
+                            Color32::YELLOW,
+                            "Warning: estimated training memory is close to available RAM.",
+                        );
                         ui.label("LOW MEMORY MODE is active for LOW-END profiles.");
                     }
                 }
@@ -1222,7 +1285,10 @@ impl AiApplication {
                         && self.core.tokenizer_path.is_some()
                         && dataset_valid
                         && self.core.worker.is_none();
-                    if ui.add_enabled(can_start, egui::Button::new("START")).clicked() {
+                    if ui
+                        .add_enabled(can_start, egui::Button::new("START"))
+                        .clicked()
+                    {
                         self.start_training_dialog = false;
                         self.core.start_training();
                     }
@@ -1277,7 +1343,8 @@ impl AiApplication {
                             self.core.refresh_model();
                             self.core.refresh_tokenizer();
                             self.core.refresh_dataset();
-                            self.core.log_event("Normal startup selected after previous crash.");
+                            self.core
+                                .log_event("Normal startup selected after previous crash.");
                         }
                         if ui.button("SAFE MODE").clicked() {
                             self.core.safe_mode = true;
@@ -1285,10 +1352,13 @@ impl AiApplication {
                             self.core.worker = None;
                             self.core.model = None;
                             self.core.tokenizer_path = None;
-                            self.core.log_event("Safe Mode selected after previous crash.");
+                            self.core
+                                .log_event("Safe Mode selected after previous crash.");
                         }
                     });
-                    ui.label("Safe Mode disables model auto-load, training and heavy background jobs.");
+                    ui.label(
+                        "Safe Mode disables model auto-load, training and heavy background jobs.",
+                    );
                     if ui.button("OPEN DIAGNOSTICS").clicked() {
                         self.core.command_page(AppPage::System);
                     }
@@ -1643,7 +1713,12 @@ fn steps_per_second(snapshot: &super::core::TrainingSnapshot) -> String {
 
 fn format_eta(seconds: f64) -> String {
     let total = seconds.max(0.0).round() as u64;
-    format!("{}h {:02}m {:02}s", total / 3600, (total % 3600) / 60, total % 60)
+    format!(
+        "{}h {:02}m {:02}s",
+        total / 3600,
+        (total % 3600) / 60,
+        total % 60
+    )
 }
 
 fn estimate_parameters(vocab: usize, embedding: usize, hidden: usize, layers: usize) -> usize {
@@ -1683,18 +1758,13 @@ fn estimate_training_memory(
 }
 
 fn draw_loss_graph(ui: &mut Ui, points: &VecDeque<(u64, f32)>) {
-    let (rect, _) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width(), 270.0),
-        egui::Sense::hover(),
-    );
+    let (rect, _) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 270.0), egui::Sense::hover());
     let painter = ui.painter_at(rect);
     painter.rect_stroke(
         rect,
         7.0,
-        Stroke::new(
-            1.0,
-            ui.visuals().widgets.noninteractive.bg_stroke.color,
-        ),
+        Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
         StrokeKind::Outside,
     );
 
@@ -1806,17 +1876,24 @@ fn draw_neural_activity(ui: &mut Ui, layers: &[super::core::LayerStats]) {
             StrokeKind::Outside,
         );
 
-        let activation_level =
-            (layer.activation_min.abs().max(layer.activation_max.abs()) / max_activation).clamp(0.0, 1.0);
+        let activation_level = (layer.activation_min.abs().max(layer.activation_max.abs())
+            / max_activation)
+            .clamp(0.0, 1.0);
         let gradient_level = (layer.gradient_norm / max_gradient).clamp(0.0, 1.0);
 
         let activation_rect = egui::Rect::from_min_max(
             rect.left_top() + Vec2::new(8.0, 30.0),
-            egui::pos2(rect.left() + 8.0 + (rect.width() - 16.0) * activation_level, rect.top() + 42.0),
+            egui::pos2(
+                rect.left() + 8.0 + (rect.width() - 16.0) * activation_level,
+                rect.top() + 42.0,
+            ),
         );
         let gradient_rect = egui::Rect::from_min_max(
             rect.left_top() + Vec2::new(8.0, 52.0),
-            egui::pos2(rect.left() + 8.0 + (rect.width() - 16.0) * gradient_level, rect.top() + 64.0),
+            egui::pos2(
+                rect.left() + 8.0 + (rect.width() - 16.0) * gradient_level,
+                rect.top() + 64.0,
+            ),
         );
         painter.rect_filled(activation_rect, 3.0, Color32::from_rgb(120, 180, 255));
         painter.rect_filled(gradient_rect, 3.0, Color32::from_rgb(220, 150, 90));
