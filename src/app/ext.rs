@@ -1,7 +1,6 @@
-use super::core::{AppCore, DatasetInfo, ModelInfo, TrainingSnapshot};
+use super::core::{AppCore, DatasetInfo, TrainingSnapshot};
 use crate::training::TrainingStatus;
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 impl AppCore {
@@ -252,6 +251,21 @@ impl AppCore {
             Ok(()) => self.logger.training(format!("Session summary written: {}", path.display())),
             Err(error) => self.last_error = Some(format!("write session summary: {error}")),
         }
+    }
+
+    pub fn update_training_session_marker(&mut self, last_finalized_run: &mut String) {
+        if !matches!(
+            self.training.state,
+            TrainingStatus::Completed | TrainingStatus::Stopped | TrainingStatus::Failed
+        ) || self.training.run_id.is_empty()
+        {
+            return;
+        }
+        if *last_finalized_run == self.training.run_id {
+            return;
+        }
+        self.write_training_session_summary();
+        *last_finalized_run = self.training.run_id.clone();
     }
 }
 
