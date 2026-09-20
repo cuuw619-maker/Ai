@@ -9,10 +9,7 @@ fn temp_root(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!(
-        "ai-app-{label}-{}-{stamp}",
-        std::process::id()
-    ))
+    std::env::temp_dir().join(format!("ai-app-{label}-{}-{stamp}", std::process::id()))
 }
 
 #[test]
