@@ -241,7 +241,11 @@ impl AiApplication {
                 row_value(ui, "Step", &self.core.training.step.to_string());
                 row_value(ui, "Tokens", &self.core.training.tokens.to_string());
                 row_value(ui, "Current loss", &loss_string(self.core.training.loss));
-                row_value(ui, "Average loss", &loss_string(self.core.training.avg_loss));
+                row_value(
+                    ui,
+                    "Average loss",
+                    &loss_string(self.core.training.avg_loss),
+                );
                 row_value(ui, "Best loss", &loss_string(self.core.training.best_loss));
                 row_value(
                     ui,
