@@ -1,3 +1,5 @@
+mod cli;
+
 use ai::app::{
     install_panic_hook, show_startup_error, AiApplication, AppCore, CrashContext, Logger,
 };
@@ -19,7 +21,7 @@ fn main() {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|value| value == "--cli") {
-        if let Err(error) = ai::cli::run(args.into_iter().skip(1).collect()) {
+        if let Err(error) = cli::run(args.into_iter().skip(1).collect()) {
             logger.app(format!("CLI error: {error}"));
             rfd::MessageDialog::new()
                 .set_title("Ai CLI")
