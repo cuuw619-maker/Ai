@@ -880,6 +880,7 @@ impl AiNet {
         Self::decode_payload_v1(payload)
     }
 
+    #[cfg(test)]
     fn encode_payload_v1(&self) -> Result<Vec<u8>, String> {
         let mut w = Writer::default();
         w.str(&self.config.architecture);
