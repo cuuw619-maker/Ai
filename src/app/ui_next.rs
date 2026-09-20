@@ -43,6 +43,7 @@ pub struct AiApplication {
     dd_searching_source: Option<String>,
     dd_search_active: bool,
     dd_search_message: String,
+    dd_stage: String,
     dd_progress: Option<(String, u64, Option<u64>)>,
     dd_preview: Option<(String, Vec<String>)>,
     dd_pending_approval: Option<(String, u64, u64)>,
@@ -104,6 +105,7 @@ impl AiApplication {
             dd_searching_source: None,
             dd_search_active: false,
             dd_search_message: String::new(),
+            dd_stage: "IDLE".into(),
             dd_progress: None,
             dd_preview: None,
             dd_pending_approval: None,
@@ -866,40 +868,46 @@ impl AiApplication {
         while let Ok(event) = manager.events.try_recv() { events.push(event); }
         for event in events {
             match event {
-                DatasetEvent::SearchStarted => { self.dd_results.clear(); self.dd_search_active = true; self.dd_search_message = "Searching sources…".into(); self.dd_searching_source = None; }
-                DatasetEvent::SourceSearching(source) => { self.dd_searching_source = Some(source.label().into()); self.dd_search_message = format!("{} — searching", source.label()); }
-                DatasetEvent::Candidate(candidate) => self.upsert_dataset_candidate(candidate),
-                DatasetEvent::SearchCompleted(count) => { self.dd_search_active = false; self.dd_searching_source = None; self.dd_search_message = format!("Found {count} datasets."); }
-                DatasetEvent::DownloadProgress { id, downloaded_bytes, total_bytes } => self.dd_progress = Some((id, downloaded_bytes, total_bytes)),
-                DatasetEvent::DownloadNeedsApproval { id, size_bytes, limit_bytes } => self.dd_pending_approval = Some((id, size_bytes, limit_bytes)),
+                DatasetEvent::SearchStarted => {
+                    self.dd_results.clear();
+                    self.dd_search_active = true;
+                    self.dd_stage = "SEARCHING".into();
+                    self.dd_search_message = "Searching public sources…".into();
+                    self.dd_searching_source = None;
+                }
+                DatasetEvent::SourceSearching(source) => {
+                    self.dd_stage = "SEARCHING".into();
+                    self.dd_searching_source = Some(source.label().into());
+                    self.dd_search_message = format!("{} — searching", source.label());
+                }
+                DatasetEvent::Candidate(candidate) => {
+                    if matches!(candidate.state, DatasetState::Queued | DatasetState::Downloading) {
+                        self.dd_stage = "DOWNLOADING".into();
+                    }
+                    self.upsert_dataset_candidate(candidate);
+                }
+                DatasetEvent::SearchCompleted(count) => {
+                    self.dd_search_active = false;
+                    self.dd_searching_source = None;
+                    self.dd_search_message = format!("Found {count} datasets.");
+                }
+                DatasetEvent::DownloadProgress { id, downloaded_bytes, total_bytes } => {
+                    self.dd_stage = "DOWNLOADING".into();
+                    self.dd_progress = Some((id, downloaded_bytes, total_bytes));
+                }
+                DatasetEvent::DownloadNeedsApproval { id, size_bytes, limit_bytes } => {
+                    self.dd_stage = "DOWNLOADING".into();
+                    self.dd_pending_approval = Some((id, size_bytes, limit_bytes));
+                },
                 DatasetEvent::Preview { id, samples } => self.dd_preview = Some((id, samples)),
+                DatasetEvent::Preparing(candidate) => {
+                    self.dd_stage = "PREPARING".into();
+                    self.upsert_dataset_candidate(candidate);
+                }
                 DatasetEvent::Ready(candidate) => self.upsert_dataset_candidate(candidate),
                 DatasetEvent::UsedForTraining(candidate) => {
                     self.upsert_dataset_candidate(candidate.clone());
                     self.select_discovered_dataset_for_training(&candidate);
-                    if !self.core.safe_mode && self.core.model.is_none() {
-                        self.core.ensure_default_tokenizer();
-                        let vocab = self
-                            .core
-                            .tokenizer_path
-                            .as_ref()
-                            .and_then(|path| crate::tokenizer::Tokenizer::load(path).ok())
-                            .map(|tokenizer| tokenizer.vocab_size())
-                            .unwrap_or(263);
-                        let sequence = self.core.config.training.sequence_length.min(64);
-                        self.core.create_model(
-                            "web-auto",
-                            vocab,
-                            64,
-                            64,
-                            2,
-                            sequence,
-                            1,
-                        );
-                    }
-                    if self.core.model.is_some() && self.core.dataset.is_some() {
-                        self.core.start_training();
-                    }
                 }
                 DatasetEvent::Removed(id) => self.dd_results.retain(|v| v.id != id),
                 DatasetEvent::Error { id, message } => {
