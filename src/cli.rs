@@ -260,6 +260,10 @@ fn drain_worker(worker: &mut TrainingWorker) {
                 "step={} epoch={} loss={:.6} tokens_seen={} tokens_sec={:.3} grad_norm={:.6} clipped={}",
                 p.step, p.epoch, p.loss, p.tokens_seen, p.tokens_per_second, p.gradient_norm, p.clipped
             ),
+            TrainingEvent::ModelSnapshot(snapshot) => println!(
+                "weights_updated={} avg_update={:.8} max_update={:.8}",
+                snapshot.updated_parameters, snapshot.average_update, snapshot.max_update
+            ),
             TrainingEvent::CheckpointSaved(path) => println!("checkpoint={}", path.display()),
             TrainingEvent::Paused => { println!("state=PAUSED"); break; }
             TrainingEvent::Resumed => println!("state=RESUMING"),
