@@ -1,7 +1,9 @@
-use super::core::{AppCore, AppPage, ModelInfo};
+use super::core::{AppCore, AppPage, DatasetInfo, ModelInfo};
 use crate::inference::GenerationConfig;
 use crate::training::TrainingStatus;
 use crate::web_learning::WebStatus;
+use crate::dataset::DatasetFormat;
+use crate::dataset_discovery::{DatasetCandidate, DatasetDiscovery, DatasetEvent, DatasetSearchFilters, DatasetSourceKind, DatasetState};
 use super::localization;
 use eframe::egui::{
     self, Align, Align2, Color32, FontId, Layout, RichText, Stroke, StrokeKind, TextStyle, Ui, Vec2,
@@ -30,6 +32,20 @@ pub struct AiApplication {
     confirm_clear_logs: bool,
     selected_log: String,
     last_finalized_run: String,
+    dataset_discovery: Option<DatasetDiscovery>,
+    dd_results: Vec<DatasetCandidate>,
+    dd_query: String,
+    dd_language: String,
+    dd_topic: String,
+    dd_kind: String,
+    dd_size: String,
+    dd_min_quality: f32,
+    dd_searching_source: Option<String>,
+    dd_search_active: bool,
+    dd_search_message: String,
+    dd_progress: Option<(String, u64, Option<u64>)>,
+    dd_preview: Option<(String, Vec<String>)>,
+    dd_pending_approval: Option<(String, u64, u64)>,
 }
 
 impl AiApplication {
@@ -73,6 +89,20 @@ impl AiApplication {
             confirm_clear_logs: false,
             selected_log,
             last_finalized_run: String::new(),
+            dataset_discovery: if core.safe_mode { None } else { DatasetDiscovery::spawn(&core.root).ok() },
+            dd_results: Vec::new(),
+            dd_query: "general text".into(),
+            dd_language: "English".into(),
+            dd_topic: "General text".into(),
+            dd_kind: "Text".into(),
+            dd_size: "Small".into(),
+            dd_min_quality: 0.60,
+            dd_searching_source: None,
+            dd_search_active: false,
+            dd_search_message: String::new(),
+            dd_progress: None,
+            dd_preview: None,
+            dd_pending_approval: None,
         }
     }
 
