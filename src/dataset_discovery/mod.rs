@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -201,7 +201,7 @@ impl DatasetSource for HuggingFaceSource {
             if quality < filters.min_quality {
                 continue;
             }
-            if !language_matches(&filters.language, &tags, description) {
+            if !language_matches(&filters.language, &tags.join(" "), description) {
                 continue;
             }
             let mut candidate = self.get_metadata(id)?;
@@ -716,7 +716,7 @@ fn download_candidate(
         candidate.state = DatasetState::Downloaded;
         return Ok(candidate);
     }
-    let agent = Agent::config_builder().timeout_global(Some(Duration::from_secs(60))).user_agent(USER_AGENT).build();
+    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(60)).user_agent(USER_AGENT).build();
     let response = agent.get(&url).set("Accept", "*/*").call().map_err(|e| format!("dataset download request: {e}"))?;
     let total = response.header("Content-Length").and_then(|v| v.parse::<u64>().ok()).or(candidate.size_bytes);
     if let Some(size) = total {
@@ -1031,7 +1031,7 @@ fn preview_candidate(candidate: &DatasetCandidate) -> Result<Vec<String>, String
     if candidate.format.eq_ignore_ascii_case("XML+BZip2") || url.ends_with(".bz2") {
         return Err("Wikimedia preview is not materialized as a full dump; download and prepare it first.".into());
     }
-    let agent = Agent::config_builder().timeout_global(Some(Duration::from_secs(20))).user_agent(USER_AGENT).build();
+    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(20)).user_agent(USER_AGENT).build();
     let response = agent.get(url).set("Range", &format!("bytes=0-{}", MAX_PREVIEW_BYTES - 1)).call().map_err(|e| format!("preview request: {e}"))?;
     let mut bytes = Vec::new();
     response.into_reader().take(MAX_PREVIEW_BYTES as u64).read_to_end(&mut bytes).map_err(|e| format!("read preview: {e}"))?;
@@ -1083,7 +1083,7 @@ fn get_json(url: &str) -> Result<Value, String> {
 }
 fn get_text(url: &str, max: usize) -> Result<String, String> {
     if !safe_http_url(url) { return Err("non-http dataset source URL".into()); }
-    let agent = Agent::config_builder().timeout_global(Some(Duration::from_secs(30))).user_agent(USER_AGENT).build();
+    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(30)).user_agent(USER_AGENT).build();
     let response = agent.get(url).set("Accept", "application/json,text/html;q=0.9,*/*;q=0.2").call().map_err(|e| format!("dataset source request: {e}"))?;
     let mut bytes = Vec::new();
     response.into_reader().take((max + 1) as u64).read_to_end(&mut bytes).map_err(|e| format!("read dataset source: {e}"))?;
@@ -1155,10 +1155,10 @@ fn infer_kind(text: &str) -> String {
 fn infer_topic(text: &str) -> String {
     let lower = text.to_ascii_lowercase();
     for (name, terms) in [
-        ("Technology", ["technology", "computer", "software", "ai"]),
-        ("Science", ["science", "research", "physics", "biology"]),
-        ("Knowledge", ["encyclopedia", "knowledge", "wiki", "reference"]),
-        ("Conversation", ["conversation", "chat", "dialog"]),
+        ("Technology", &["technology", "computer", "software", "ai"][..]),
+        ("Science", &["science", "research", "physics", "biology"][..]),
+        ("Knowledge", &["encyclopedia", "knowledge", "wiki", "reference"][..]),
+        ("Conversation", &["conversation", "chat", "dialog"][..]),
     ] {
         if terms.iter().any(|v| lower.contains(v)) { return name.into(); }
     }
@@ -1173,9 +1173,9 @@ fn infer_language(text: &str) -> String {
     else { "Unknown".into() }
 }
 
-fn language_matches(wanted: &str, tags: &[&str], description: &str) -> bool {
+fn language_matches(wanted: &str, tags: &str, description: &str) -> bool {
     if wanted.eq_ignore_ascii_case("All") || wanted.eq_ignore_ascii_case("Any") { return true; }
-    let haystack = format!("{} {}", tags.join(" "), description).to_ascii_lowercase();
+    let haystack = format!("{} {}", tags, description).to_ascii_lowercase();
     match wanted.to_ascii_lowercase().as_str() {
         "english" => haystack.contains("english") || haystack.contains("en"),
         "russian" => haystack.contains("russian") || haystack.contains("ru"),
