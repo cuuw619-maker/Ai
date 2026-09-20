@@ -205,9 +205,50 @@ fn train_command(args: &[String]) -> Result<(), String> {
             remove_control();
             let trainer =
                 Trainer::new(model, tokenizer, dataset, format, config, Path::new("data"))?;
+            let memory = trainer.model.memory_report(trainer.config.sequence_length);
             println!(
-                "estimated_training_mb={}",
-                trainer.model_memory_estimate_bytes() / 1024 / 1024
+                "memory.embedding_mb={:.2}",
+                memory.embedding_bytes as f64 / 1024.0 / 1024.0
+            );
+            println!(
+                "memory.projection_mb={:.2}",
+                memory.projection_bytes as f64 / 1024.0 / 1024.0
+            );
+            println!(
+                "memory.cell_weights_mb={:.2}",
+                memory.cell_weights_bytes as f64 / 1024.0 / 1024.0
+            );
+            println!(
+                "memory.output_mb={:.2}",
+                memory.output_weights_bytes as f64 / 1024.0 / 1024.0
+            );
+            println!(
+                "memory.gradients_mb={:.2}",
+                memory.gradients_bytes as f64 / 1024.0 / 1024.0
+            );
+            println!(
+                "memory.optimizer_m_mb={:.2}",
+                memory.optimizer_m_bytes as f64 / 1024.0 / 1024.0
+            );
+            println!(
+                "memory.optimizer_v_mb={:.2}",
+                memory.optimizer_v_bytes as f64 / 1024.0 / 1024.0
+            );
+            println!(
+                "memory.bptt_cache_mb={:.2}",
+                memory.bptt_cache_bytes as f64 / 1024.0 / 1024.0
+            );
+            println!(
+                "memory.hidden_history_mb={:.2}",
+                memory.hidden_history_bytes as f64 / 1024.0 / 1024.0
+            );
+            println!(
+                "memory.temporary_mb={:.2}",
+                memory.temporary_bytes as f64 / 1024.0 / 1024.0
+            );
+            println!(
+                "estimated_training_mb={:.2}",
+                memory.total_bytes() as f64 / 1024.0 / 1024.0
             );
             let mut worker =
                 TrainingWorker::spawn(trainer, Some(PathBuf::from("data/training.command")));
