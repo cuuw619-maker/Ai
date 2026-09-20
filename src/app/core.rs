@@ -315,7 +315,9 @@ impl AppCore {
         }
         core.refresh_tokenizer();
         core.refresh_dataset();
-        core.detect_training_recovery();
+        if !core.safe_mode {
+            core.detect_training_recovery();
+        }
         core.update_crash_context();
         Ok(core)
     }
