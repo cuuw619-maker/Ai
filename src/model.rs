@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 use crate::neural::Parameter;
 use std::fs;
 use std::path::Path;
