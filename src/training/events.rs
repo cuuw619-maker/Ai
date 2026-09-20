@@ -33,6 +33,11 @@ pub struct LayerTrainingStats {
     pub weight_norm: f32,
     pub gradient_norm: f32,
     pub memory_norm: f32,
+    pub active_blocks: usize,
+    pub skipped_blocks: usize,
+    pub active_channels: usize,
+    pub skipped_channels: usize,
+    pub routing_entropy: f32,
 }
 
 #[derive(Clone, Debug)]
