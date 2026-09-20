@@ -1479,7 +1479,7 @@ mod tests {
         std::fs::remove_file(&path).ok();
 
         assert_eq!(loaded.config.architecture, "AiNet-v1");
-        assert_eq!(loaded.config.model_id, "legacy-0000000000006078");
+        assert_eq!(loaded.config.model_id, "legacy-0000000000006068");
         assert_eq!(loaded.parameter_count(), model.parameter_count());
         assert_eq!(loaded.parameter_snapshot(), model.parameter_snapshot());
         assert!(loaded.input_projection_w.is_none());
