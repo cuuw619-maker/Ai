@@ -132,11 +132,20 @@ impl TrainingStream {
         }
         let before = self.cursor()?;
         let mut ids = Vec::with_capacity(self.sequence_length + 1);
-        for _ in 0..self.sequence_length + 1 {
+        while ids.len() < self.sequence_length + 1 {
+            self.normalize();
             if self.chunks.front().is_none() {
-                return Err("training stream internal buffer underflow".into());
+                self.fill(1)?;
+                self.normalize();
             }
-            let chunk = self.chunks.front_mut().unwrap();
+            let chunk = self
+                .chunks
+                .front_mut()
+                .ok_or_else(|| "training stream buffer underflow".to_string())?;
+            if chunk.position >= chunk.tokens.len() {
+                self.normalize();
+                continue;
+            }
             ids.push(chunk.tokens[chunk.position]);
             chunk.position += 1;
         }
