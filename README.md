@@ -110,3 +110,5 @@ The regression suite covers neural loss reduction, weight mutation, numerical gr
 ## Project status
 
 The next stages are richer resource monitoring, fuller evaluation, persistent SQLite memory, native UI and final Windows application UX. These remain after the neural and training correctness layer.
+
+<!-- validation current HEAD -->
