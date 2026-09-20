@@ -20,17 +20,17 @@ jobs:
           targets: x86_64-pc-windows-msvc
           components: rustfmt, clippy
 
-      - name: Apply rustfmt
+      - name: Apply rustfmt and upload normalized sources
         shell: pwsh
         run: |
           cargo fmt --all
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if (git status --porcelain) {
-            git add .
-            git commit -m "chore: apply rustfmt"
-            git push
-          }
+          Compress-Archive -Path src,tests,Cargo.toml -DestinationPath fmt-source.zip -Force
+
+      - name: Upload normalized sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: fmt-source-${{ github.run_id }}
+          path: fmt-source.zip
 
       - name: Format check
         run: cargo fmt --check
