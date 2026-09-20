@@ -6,7 +6,7 @@ use crate::dataset::{dataset_metadata, validate, DatasetFormat, ValidationReport
 use crate::inference::{GenerationConfig, InferenceEngine};
 use crate::neural::Tensor;
 use crate::tokenizer::{Tokenizer, TokenizerTrainer, TokenizerTrainerConfig};
-use crate::web_learning::{TrainingBridge, WebCommand, WebEvent, WebLearner, WebSettings, WebStats, WebStatus};
+use crate::web_learning::{TrainingBridge, WebCommand, WebEvent, WebLearner, WebStats, WebStatus};
 use crate::training::{
     Checkpoint, ModelTrainingSnapshot, Trainer, TrainingCommand, TrainingConfig, TrainingEvent,
     TrainingProgress, TrainingStatus, TrainingWorker,
