@@ -653,6 +653,17 @@ impl AppCore {
                 return;
             }
         };
+        if tokenizer.vocab_size() > model.config.vocab_size {
+            let error = format!(
+                "Web tokenizer vocabulary {} exceeds model vocabulary {}. Create a model with a larger vocabulary.",
+                tokenizer.vocab_size(),
+                model.config.vocab_size
+            );
+            self.last_error = Some(error.clone());
+            self.logger.training(error);
+            let _ = TrainingBridge::finalize_batch(&self.root, false);
+            return;
+        }
         let mut config = self.training_config();
         config.continuous = false;
         config.epochs = 1;
