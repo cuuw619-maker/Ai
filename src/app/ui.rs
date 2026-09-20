@@ -228,7 +228,7 @@ impl AiApplication {
                         self.core.resume_training();
                     }
                 } else if self.core.worker.is_none() && ui.button("START TRAINING").clicked() {
-                    self.core.start_training();
+                    self.core.start_training_dialog = true;
                 }
             });
         });
@@ -641,6 +641,17 @@ impl AiApplication {
                     .arg(self.core.logger.directory())
                     .spawn();
             }
+            if ui.button("CLEAR ROTATED LOGS").clicked()
+                && rfd::MessageDialog::new()
+                    .set_title("Clear rotated logs?")
+                    .set_description("Only *.log.1 and *.log.2 files will be removed.")
+                    .set_buttons(rfd::MessageButtons::YesNo)
+                    .set_level(rfd::MessageLevel::Warning)
+                    .show()
+                    == rfd::MessageDialogResult::Yes
+            {
+                self.core.clear_rotated_logs();
+            }
         });
         let file = match self.core.log_channel.as_str() {
             "TRAINING LOG" => "training.log",
@@ -908,6 +919,101 @@ impl AiApplication {
         }
     }
 
+    fn start_training_dialog(&mut self, ctx: &egui::Context) {
+        if !self.core.start_training_dialog {
+            return;
+        }
+        egui::Window::new("Start Training")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.heading("Training preflight");
+                let model_name = self
+                    .core
+                    .model
+                    .as_ref()
+                    .and_then(|m| m.config.as_ref())
+                    .map(|c| c.model_id.as_str())
+                    .unwrap_or("—");
+                let dataset_name = self
+                    .core
+                    .dataset
+                    .as_ref()
+                    .and_then(|d| d.path.file_name())
+                    .and_then(|v| v.to_str())
+                    .unwrap_or("—");
+                let (parameters, estimated_bytes) =
+                    self.core.training_resource_estimate().unwrap_or((0, 0));
+                row_value(ui, "Model", model_name);
+                row_value(ui, "Dataset", dataset_name);
+                row_value(ui, "Parameters", &parameters.to_string());
+                row_value(
+                    ui,
+                    "Estimated training memory",
+                    &AppCore::format_mb(estimated_bytes),
+                );
+                row_value(
+                    ui,
+                    "Available RAM",
+                    &AppCore::format_mb(self.core.resources.ram_available_bytes),
+                );
+                row_value(
+                    ui,
+                    "Sequence",
+                    &self.core.config.training.sequence_length.to_string(),
+                );
+                row_value(
+                    ui,
+                    "Threads",
+                    &self.core.config.training.max_cpu_threads.to_string(),
+                );
+                row_value(
+                    ui,
+                    "Batch",
+                    "1",
+                );
+                row_value(
+                    ui,
+                    "Accumulation",
+                    &self.core.config.training.gradient_accumulation.to_string(),
+                );
+                row_value(
+                    ui,
+                    "Learning rate",
+                    &format!("{:.6}", self.core.config.training.learning_rate),
+                );
+                row_value(ui, "Epochs", &self.core.config.training.epochs.to_string());
+
+                let memory_warning = estimated_bytes > self.core.resources.ram_available_bytes
+                    || estimated_bytes / 1024 / 1024
+                        > self.core.config.training.memory_budget_mb as u64;
+                if memory_warning {
+                    ui.add_space(8.0);
+                    ui.colored_label(
+                        Color32::YELLOW,
+                        "WARNING: estimated memory is above the configured safe envelope.",
+                    );
+                    ui.label(
+                        "LOW MEMORY MODE reduces sequence length, accumulation and memory budget.",
+                    );
+                }
+
+                ui.horizontal(|ui| {
+                    if ui.button("CANCEL").clicked() {
+                        self.core.start_training_dialog = false;
+                    }
+                    if memory_warning && ui.button("LOW MEMORY MODE").clicked() {
+                        self.core.apply_low_memory_profile();
+                    }
+                    if ui.button("START").clicked() {
+                        self.core.start_training_dialog = false;
+                        self.core.start_training();
+                    }
+                });
+            });
+    }
+
     fn recovery_overlay(&mut self, ctx: &egui::Context) {
         if self.core.previous_crash {
             egui::Window::new("Previous crash detected")
@@ -921,7 +1027,9 @@ impl AiApplication {
                     ui.horizontal(|ui| {
                         if ui.button("START NORMALLY").clicked() {
                             self.core.safe_mode = false;
+                            self.core.config.safe_mode = false;
                             self.core.previous_crash = false;
+                            self.core.save_config();
                             self.core.refresh_model();
                             self.core.refresh_tokenizer();
                             self.core.refresh_dataset();
@@ -930,7 +1038,9 @@ impl AiApplication {
                         }
                         if ui.button("SAFE MODE").clicked() {
                             self.core.safe_mode = true;
+                            self.core.config.safe_mode = true;
                             self.core.previous_crash = false;
+                            self.core.save_config();
                             self.core.worker = None;
                             self.core.model = None;
                             self.core.log_event("Safe mode enabled.");
@@ -1008,6 +1118,7 @@ impl eframe::App for AiApplication {
             });
         });
         self.recovery_overlay(ctx);
+        self.start_training_dialog(ctx);
         self.wizard(ctx);
         if self.core.tokenizer_job_rx.is_some() {
             egui::Area::new("tokenizer-job".into())
