@@ -652,6 +652,11 @@ impl Trainer {
             max_update: update.max_absolute_update,
             layers,
         };
+        let _ = events.send(TrainingEvent::ModelSnapshot(snapshot));
+
+        let elapsed = now_ms().saturating_sub(started).max(1) as f64 / 1000.0;
+        let tokens_per_second = self.state.tokens_this_run as f64 / elapsed;
+        let progress = self.progress(loss, tokens_per_second, norm, clipped);
         let _ = events.send(TrainingEvent::Step(progress));
         *accumulation_count = 0;
         *accumulated_loss = 0.0;
