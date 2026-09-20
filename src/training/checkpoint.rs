@@ -28,7 +28,7 @@ pub struct CheckpointData {
     pub model_bytes: Vec<u8>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy, Clone)]
 pub struct CheckpointSave<'a> {
     pub path: &'a Path,
     pub run_id: &'a str,
@@ -48,20 +48,20 @@ pub struct Checkpoint;
 impl Checkpoint {
     pub fn save_latest(request: CheckpointSave<'_>) -> Result<(), String> {
         let data = CheckpointData {
-            run_id: run_id.into(),
-            timestamp_unix_ms,
-            model_architecture: model.config.architecture.clone(),
-            model_id: model.config.model_id.clone(),
-            model_checksum: model.weights_checksum(),
-            dataset_id: dataset_id.into(),
-            tokenizer_id: tokenizer_id.into(),
-            state: state.clone(),
-            config: config.clone(),
-            cursor: state.cursor.clone(),
-            optimizer: optimizer.clone(),
-            random_state,
-            memory_state: memory_state.to_vec(),
-            model_bytes: model.to_aimodel_bytes()?,
+            run_id: request.run_id.into(),
+            timestamp_unix_ms: request.timestamp_unix_ms,
+            model_architecture: request.model.config.architecture.clone(),
+            model_id: request.model.config.model_id.clone(),
+            model_checksum: request.model.weights_checksum(),
+            dataset_id: request.dataset_id.into(),
+            tokenizer_id: request.tokenizer_id.into(),
+            state: request.state.clone(),
+            config: request.config.clone(),
+            cursor: request.state.cursor.clone(),
+            optimizer: request.optimizer.clone(),
+            random_state: request.random_state,
+            memory_state: request.memory_state.to_vec(),
+            model_bytes: request.model.to_aimodel_bytes()?,
         };
         atomic_save(request.path, &encode(&data)?)
     }
