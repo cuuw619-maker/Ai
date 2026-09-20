@@ -784,6 +784,48 @@ impl AiApplication {
         });
     }
 
+    fn poll_dataset_discovery(&mut self) {
+        let Some(manager) = &self.dataset_discovery else { return; };
+        let mut events = Vec::new();
+        while let Ok(event) = manager.events.try_recv() { events.push(event); }
+        for event in events {
+            match event {
+                DatasetEvent::SearchStarted => { self.dd_results.clear(); self.dd_search_active = true; self.dd_search_message = "Searching sources…".into(); self.dd_searching_source = None; }
+                DatasetEvent::SourceSearching(source) => { self.dd_searching_source = Some(source.label().into()); self.dd_search_message = format!("{} — searching", source.label()); }
+                DatasetEvent::Candidate(candidate) => self.upsert_dataset_candidate(candidate),
+                DatasetEvent::SearchCompleted(count) => { self.dd_search_active = false; self.dd_searching_source = None; self.dd_search_message = format!("Found {count} datasets."); }
+                DatasetEvent::DownloadProgress { id, downloaded_bytes, total_bytes } => self.dd_progress = Some((id, downloaded_bytes, total_bytes)),
+                DatasetEvent::DownloadNeedsApproval { id, size_bytes, limit_bytes } => self.dd_pending_approval = Some((id, size_bytes, limit_bytes)),
+                DatasetEvent::Preview { id, samples } => self.dd_preview = Some((id, samples)),
+                DatasetEvent::Ready(candidate) => self.upsert_dataset_candidate(candidate),
+                DatasetEvent::UsedForTraining(candidate) => { self.upsert_dataset_candidate(candidate.clone()); self.select_discovered_dataset_for_training(&candidate); }
+                DatasetEvent::Removed(id) => self.dd_results.retain(|v| v.id != id),
+                DatasetEvent::Error { id, message } => {
+                    if let Some(id) = id { if let Some(v) = self.dd_results.iter_mut().find(|v| v.id == id) { v.state = DatasetState::Failed; v.error = Some(message.clone()); } }
+                    self.dd_search_active = false; self.core.logger.app(format!("Dataset Discovery error: {message}")); self.core.last_error = Some(message);
+                }
+            }
+        }
+    }
+
+    fn upsert_dataset_candidate(&mut self, candidate: DatasetCandidate) {
+        if let Some(existing) = self.dd_results.iter_mut().find(|v| v.id == candidate.id) { *existing = candidate; } else { self.dd_results.push(candidate); }
+        self.dd_results.sort_by(|a, b| b.small_model_recommended.cmp(&a.small_model_recommended).then_with(|| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase())));
+    }
+
+    fn discover_search(&self) -> DatasetSearchFilters { DatasetSearchFilters { query: self.dd_query.trim().into(), language: self.dd_language.clone(), topic: self.dd_topic.clone(), kind: self.dd_kind.clone(), size: self.dd_size.clone(), min_quality: self.dd_min_quality } }
+
+    fn queue_discovered_download(&mut self, id: &str, allow_large: bool) {
+        let Some(manager) = &self.dataset_discovery else { self.core.last_error = Some("Dataset Discovery is unavailable.".into()); return; };
+        if let Err(error) = manager.download(id, allow_large) { self.core.last_error = Some(error); }
+    }
+
+    fn select_discovered_dataset_for_training(&mut self, candidate: &DatasetCandidate) {
+        let Some(path) = candidate.prepared_path.clone() else { self.core.last_error = Some("Dataset is not prepared yet.".into()); return; };
+        self.core.config.datasets = vec![path.display().to_string()];
+        self.core.dataset = Some(DatasetInfo { path, format: DatasetFormat::Aicorpus, metadata_id: Some(candidate.id.clone()), report: None, error: None });
+        self.core.save_config(); self.core.validate_dataset(); self.core.log_event(format!("Dataset selected for training: {}", candidate.name));
+    }
     fn dataset(&mut self, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
             if ui.button("ADD DATASET").clicked() && !self.core.safe_mode {
@@ -1738,6 +1780,7 @@ impl AiApplication {
 impl eframe::App for AiApplication {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.core.refresh();
+        self.poll_dataset_discovery();
         self.core
             .update_training_session_marker(&mut self.last_finalized_run);
 
@@ -1754,6 +1797,7 @@ impl eframe::App for AiApplication {
                     AppPage::Train => self.train(ui),
                     AppPage::Model => self.model(ui),
                     AppPage::Dataset => self.dataset(ui),
+                    AppPage::DataDiscovery => self.data_discovery(ui),
                     AppPage::Memory => self.memory(ui),
                     AppPage::Evaluation => self.evaluation(ui),
                     AppPage::Logs => self.logs(ui),
