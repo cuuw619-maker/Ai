@@ -327,7 +327,7 @@ impl DatasetSource for GitHubSource {
                 "",
             );
             if let Ok(candidate) = self.get_metadata(full_name) {
-                let mut candidate = DatasetCandidate {
+                let candidate = DatasetCandidate {
                     description: description.to_string(),
                     quality_score: quality,
                     small_model_recommended: candidate.size_bytes.map(|v| v <= 128 * 1024 * 1024).unwrap_or(false),
