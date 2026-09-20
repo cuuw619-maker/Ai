@@ -65,6 +65,75 @@ fn tokenizer_round_trip_and_checksum_are_real() {
 }
 
 #[test]
+fn tokenizer_rejects_inconsistent_special_token_ids() {
+    let mut specials = default_special_tokens();
+    specials[0].id = 999;
+    assert!(Tokenizer::from_parts(specials, Vec::new()).is_err());
+}
+
+#[test]
+fn deterministic_training_matches_for_same_seed_and_config() {
+    let corpus = temp_path("deterministic.txt");
+    let root_a = temp_path("deterministic-a");
+    let root_b = temp_path("deterministic-b");
+    fs::write(&corpus, "abcdefghijklmno\npqrstuvwxyz0123456789\n").unwrap();
+
+    let tokenizer = Tokenizer::from_parts(default_special_tokens(), Vec::new()).unwrap();
+    let model_config = ModelConfig {
+        architecture: "AiNet-v1.1".into(),
+        model_id: "deterministic".into(),
+        vocab_size: tokenizer.vocab_size(),
+        embedding_dim: 8,
+        hidden_dim: 8,
+        layer_count: 1,
+        sequence_length: 8,
+        seed: 112233,
+    };
+    let mut config = TrainingConfig::low_end();
+    config.epochs = 2;
+    config.sequence_length = 8;
+    config.gradient_accumulation = 1;
+    config.checkpoint_interval_steps = 1000;
+    config.max_steps = Some(2);
+    config.memory_budget_mb = 512;
+
+    let mut a = Trainer::new(
+        AiNet::new(model_config.clone()).unwrap(),
+        tokenizer.clone(),
+        &corpus,
+        DatasetFormat::Txt,
+        config.clone(),
+        &root_a,
+    )
+    .unwrap();
+    let mut b = Trainer::new(
+        AiNet::new(model_config).unwrap(),
+        tokenizer,
+        &corpus,
+        DatasetFormat::Txt,
+        config,
+        &root_b,
+    )
+    .unwrap();
+
+    let (_a_tx, a_rx) = mpsc::channel();
+    let (a_events, _a_events_rx) = mpsc::channel();
+    let (_b_tx, b_rx) = mpsc::channel();
+    let (b_events, _b_events_rx) = mpsc::channel();
+    a.run(&a_rx, None, &a_events);
+    b.run(&b_rx, None, &b_events);
+
+    let a_params: Vec<Vec<f32>> = a.model.parameters().into_iter().map(|p| p.data.clone()).collect();
+    let b_params: Vec<Vec<f32>> = b.model.parameters().into_iter().map(|p| p.data.clone()).collect();
+    assert_eq!(a_params, b_params);
+    assert_eq!(a.optimizer.step_count(), b.optimizer.step_count());
+
+    let _ = fs::remove_file(corpus);
+    let _ = fs::remove_dir_all(root_a);
+    let _ = fs::remove_dir_all(root_b);
+}
+
+#[test]
 fn dataset_cursor_resumes_exact_sequence() {
     let corpus = temp_path("cursor.txt");
     fs::write(&corpus, "abcdefghijklmno\npqrstuvwxyz0123456789\n").unwrap();
