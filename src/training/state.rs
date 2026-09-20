@@ -69,7 +69,6 @@ impl TrainingState {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{TrainingState, TrainingStatus};
