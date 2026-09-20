@@ -57,6 +57,8 @@ impl DatasetReader {
         Ok(())
     }
 
+    pub fn next_sample_index(&self) -> u64 { self.next_sample_index }
+
     pub fn current_offset(&mut self) -> Result<u64, String> {
         self.reader
             .stream_position()
