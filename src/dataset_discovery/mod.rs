@@ -728,7 +728,7 @@ fn download_candidate(
             return Err(format!("APPROVAL:{size}"));
         }
     }
-    let mut reader = response.into_reader().take((ABSOLUTE_MAX_DOWNLOAD_BYTES + 1) as u64);
+    let mut reader = response.into_reader().take(ABSOLUTE_MAX_DOWNLOAD_BYTES + 1);
     let mut file = File::create(&output).map_err(|e| format!("create dataset file: {e}"))?;
     let mut buffer = [0u8; 64 * 1024];
     let mut downloaded = 0u64;
@@ -1232,7 +1232,7 @@ mod tests {
     #[test]
     fn candidate_file_names_are_safe() {
         assert!(allowed_download_name("data.jsonl"));
-        assert!(allowed_download_name("dump.xml.bz2") == false);
+        assert!(!allowed_download_name("dump.xml.bz2"));
         assert!(!allowed_download_name("payload.exe"));
     }
 
