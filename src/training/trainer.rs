@@ -1,7 +1,9 @@
 use super::checkpoint::{Checkpoint, CheckpointSave};
 use super::config::TrainingConfig;
 use super::evaluation::Evaluator;
-use super::events::{LayerTrainingStats, ModelTrainingSnapshot, TrainingCommand, TrainingEvent, TrainingProgress};
+use super::events::{
+    LayerTrainingStats, ModelTrainingSnapshot, TrainingCommand, TrainingEvent, TrainingProgress,
+};
 use super::state::{TrainingState, TrainingStatus};
 use crate::dataset::{
     dataset_metadata, DatasetCursor, DatasetFormat, DatasetReader, TrainingStream,
@@ -567,10 +569,17 @@ impl Trainer {
             .enumerate()
             .map(|(layer, cell)| {
                 let sum = [
-                    &cell.w_keep, &cell.u_keep, &cell.b_keep,
-                    &cell.w_write, &cell.u_write, &cell.b_write,
-                    &cell.w_candidate, &cell.u_candidate, &cell.b_candidate,
-                    &cell.w_out, &cell.b_out,
+                    &cell.w_keep,
+                    &cell.u_keep,
+                    &cell.b_keep,
+                    &cell.w_write,
+                    &cell.u_write,
+                    &cell.b_write,
+                    &cell.w_candidate,
+                    &cell.u_candidate,
+                    &cell.b_candidate,
+                    &cell.w_out,
+                    &cell.b_out,
                 ]
                 .iter()
                 .flat_map(|p| p.grad.iter())
@@ -590,10 +599,17 @@ impl Trainer {
             .enumerate()
             .map(|(layer, cell)| {
                 let weight_sum = [
-                    &cell.w_keep, &cell.u_keep, &cell.b_keep,
-                    &cell.w_write, &cell.u_write, &cell.b_write,
-                    &cell.w_candidate, &cell.u_candidate, &cell.b_candidate,
-                    &cell.w_out, &cell.b_out,
+                    &cell.w_keep,
+                    &cell.u_keep,
+                    &cell.b_keep,
+                    &cell.w_write,
+                    &cell.u_write,
+                    &cell.b_write,
+                    &cell.w_candidate,
+                    &cell.u_candidate,
+                    &cell.b_candidate,
+                    &cell.w_out,
+                    &cell.b_out,
                 ]
                 .iter()
                 .flat_map(|p| p.data.iter())

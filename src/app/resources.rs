@@ -41,9 +41,8 @@ impl ResourceMonitor {
                 let mut disk_total_bytes = 0u64;
                 for disk in &disks {
                     disk_total_bytes = disk_total_bytes.saturating_add(disk.total_space());
-                    disk_used_bytes = disk_used_bytes.saturating_add(
-                        disk.total_space().saturating_sub(disk.available_space()),
-                    );
+                    disk_used_bytes = disk_used_bytes
+                        .saturating_add(disk.total_space().saturating_sub(disk.available_space()));
                 }
                 let snapshot = ResourceSnapshot {
                     cpu_percent: system.global_cpu_usage(),
@@ -64,7 +63,11 @@ impl ResourceMonitor {
                 thread::sleep(interval);
             }
         });
-        Self { stop, events: rx, join: Some(join) }
+        Self {
+            stop,
+            events: rx,
+            join: Some(join),
+        }
     }
 
     pub fn stop(&mut self) {

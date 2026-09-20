@@ -7,7 +7,6 @@ pub struct ParameterUpdateStats {
     pub max_absolute_update: f32,
 }
 
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdamWState {
     pub learning_rate: f32,

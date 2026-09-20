@@ -1,4 +1,6 @@
-use ai::app::{install_panic_hook, show_startup_error, AiApplication, AppCore, CrashContext, Logger};
+use ai::app::{
+    install_panic_hook, show_startup_error, AiApplication, AppCore, CrashContext, Logger,
+};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 

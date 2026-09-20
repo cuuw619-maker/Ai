@@ -4,9 +4,12 @@ use super::resources::{ResourceMonitor, ResourceSnapshot};
 use crate::architecture::AiNet;
 use crate::dataset::{dataset_metadata, validate, DatasetFormat, ValidationReport};
 use crate::inference::{GenerationConfig, InferenceEngine};
-use crate::tokenizer::{Tokenizer, TokenizerTrainer, TokenizerTrainerConfig};
-use crate::training::{Checkpoint, Trainer, TrainingCommand, TrainingConfig, TrainingEvent, TrainingProgress, TrainingStatus, TrainingWorker};
 use crate::neural::Tensor;
+use crate::tokenizer::{Tokenizer, TokenizerTrainer, TokenizerTrainerConfig};
+use crate::training::{
+    Checkpoint, Trainer, TrainingCommand, TrainingConfig, TrainingEvent, TrainingProgress,
+    TrainingStatus, TrainingWorker,
+};
 use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,8 +35,16 @@ pub enum AppPage {
 
 impl AppPage {
     pub const ALL: [AppPage; 10] = [
-        Self::Home, Self::Chat, Self::Train, Self::Model, Self::Dataset,
-        Self::Memory, Self::Evaluation, Self::Logs, Self::Settings, Self::System,
+        Self::Home,
+        Self::Chat,
+        Self::Train,
+        Self::Model,
+        Self::Dataset,
+        Self::Memory,
+        Self::Evaluation,
+        Self::Logs,
+        Self::Settings,
+        Self::System,
     ];
 
     pub fn name(self) -> &'static str {
@@ -242,7 +253,8 @@ impl AppCore {
 
         let page = parse_page(&config.selected_page);
         let safe_mode = config.safe_mode;
-        let resource_monitor = ResourceMonitor::start(Duration::from_millis(config.ui_update_ms.max(500)));
+        let resource_monitor =
+            ResourceMonitor::start(Duration::from_millis(config.ui_update_ms.max(500)));
         let mut core = Self {
             root: root.clone(),
             config,
@@ -303,7 +315,11 @@ impl AppCore {
     pub fn is_trainer_running(&self) -> bool {
         matches!(
             self.training.state,
-            TrainingStatus::Starting | TrainingStatus::Running | TrainingStatus::Pausing | TrainingStatus::Resuming | TrainingStatus::Saving
+            TrainingStatus::Starting
+                | TrainingStatus::Running
+                | TrainingStatus::Pausing
+                | TrainingStatus::Resuming
+                | TrainingStatus::Saving
         )
     }
 
@@ -342,8 +358,11 @@ impl AppCore {
                     Ok(mut info) => {
                         info.loaded_from_previous = true;
                         self.model = Some(info);
-                        self.last_error = Some(format!("Primary model invalid; using previous valid model: {error}"));
-                        self.logger.app(self.last_error.as_deref().unwrap_or_default());
+                        self.last_error = Some(format!(
+                            "Primary model invalid; using previous valid model: {error}"
+                        ));
+                        self.logger
+                            .app(self.last_error.as_deref().unwrap_or_default());
                     }
                     Err(_) => {
                         self.model = None;
@@ -369,7 +388,13 @@ impl AppCore {
             return;
         };
         let format = DatasetFormat::from_path(&path);
-        let info = DatasetInfo { path, format, metadata_id: None, report: None, error: None };
+        let info = DatasetInfo {
+            path,
+            format,
+            metadata_id: None,
+            report: None,
+            error: None,
+        };
         self.dataset = Some(info);
     }
 
@@ -377,7 +402,9 @@ impl AppCore {
         let Some(path) = rfd::FileDialog::new()
             .add_filter("Dataset", &["txt", "jsonl"])
             .pick_file()
-        else { return };
+        else {
+            return;
+        };
         self.config.datasets = vec![path.display().to_string()];
         self.dataset = Some(DatasetInfo {
             format: DatasetFormat::from_path(&path),
@@ -395,7 +422,10 @@ impl AppCore {
             self.last_error = Some("No dataset selected.".into());
             return;
         };
-        let tokenizer = self.tokenizer_path.as_ref().and_then(|p| Tokenizer::load(p).ok());
+        let tokenizer = self
+            .tokenizer_path
+            .as_ref()
+            .and_then(|p| Tokenizer::load(p).ok());
         match validate(&dataset.path, dataset.format.clone(), tokenizer.as_ref()) {
             Ok(report) => {
                 let metadata = dataset_metadata(&dataset.path, dataset.format.clone()).ok();
@@ -447,7 +477,16 @@ impl AppCore {
         self.log_event("Tokenizer training started.");
     }
 
-    pub fn create_model(&mut self, name: &str, vocab: usize, embedding: usize, hidden: usize, layers: usize, sequence: usize, seed: u64) {
+    pub fn create_model(
+        &mut self,
+        name: &str,
+        vocab: usize,
+        embedding: usize,
+        hidden: usize,
+        layers: usize,
+        sequence: usize,
+        seed: u64,
+    ) {
         if name.trim().is_empty() {
             self.last_error = Some("Model name must not be empty.".into());
             return;
@@ -463,8 +502,12 @@ impl AppCore {
             seed,
         };
         match AiNet::new(config.clone()).and_then(|model| {
-            let path = self.root.join("models").join(format!("{}.aimodel", sanitize_file_name(name)));
-            fs::create_dir_all(path.parent().unwrap_or(&self.root)).map_err(|e| format!("create model directory: {e}"))?;
+            let path = self
+                .root
+                .join("models")
+                .join(format!("{}.aimodel", sanitize_file_name(name)));
+            fs::create_dir_all(path.parent().unwrap_or(&self.root))
+                .map_err(|e| format!("create model directory: {e}"))?;
             model.save(&path)?;
             Ok(path)
         }) {
@@ -479,7 +522,12 @@ impl AppCore {
     }
 
     pub fn load_model_dialog(&mut self) {
-        let Some(path) = rfd::FileDialog::new().add_filter("Ai model", &["aimodel"]).pick_file() else { return };
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Ai model", &["aimodel"])
+            .pick_file()
+        else {
+            return;
+        };
         self.config.model_path = Some(path.display().to_string());
         self.save_config();
         self.refresh_model();
@@ -503,11 +551,17 @@ impl AppCore {
         };
         let tokenizer = match Tokenizer::load(&tokenizer_path) {
             Ok(v) => v,
-            Err(e) => { self.last_error = Some(e); return; }
+            Err(e) => {
+                self.last_error = Some(e);
+                return;
+            }
         };
         let model = match AiNet::load(&model_path) {
             Ok(v) => v,
-            Err(e) => { self.last_error = Some(e); return; }
+            Err(e) => {
+                self.last_error = Some(e);
+                return;
+            }
         };
         let config = self.training_config();
         if let Err(error) = config.validate() {
@@ -521,9 +575,19 @@ impl AppCore {
             }
         }
         let checksum = model.weights_checksum();
-        let trainer = match Trainer::new(model, tokenizer, dataset.path.clone(), dataset.format.clone(), config, &self.root) {
+        let trainer = match Trainer::new(
+            model,
+            tokenizer,
+            dataset.path.clone(),
+            dataset.format.clone(),
+            config,
+            &self.root,
+        ) {
             Ok(v) => v,
-            Err(e) => { self.last_error = Some(e); return; }
+            Err(e) => {
+                self.last_error = Some(e);
+                return;
+            }
         };
         let mut worker = TrainingWorker::spawn(trainer, Some(self.root.join("training.command")));
         if let Err(e) = worker.send(TrainingCommand::Start) {
@@ -567,14 +631,22 @@ impl AppCore {
             return;
         }
         let Some(recovery) = self.recovery_session.clone().or_else(|| {
-            self.training.checkpoint.clone().map(|checkpoint| TrainingRecovery {
-                run_id: self.training.run_id.clone(),
-                step: self.training.step,
-                epoch: self.training.epoch,
-                checkpoint,
-                model_id: self.model.as_ref()?.config.as_ref()?.model_id.clone(),
-                dataset_id: self.dataset.as_ref()?.metadata_id.clone().unwrap_or_default(),
-            })
+            self.training
+                .checkpoint
+                .clone()
+                .map(|checkpoint| TrainingRecovery {
+                    run_id: self.training.run_id.clone(),
+                    step: self.training.step,
+                    epoch: self.training.epoch,
+                    checkpoint,
+                    model_id: self.model.as_ref()?.config.as_ref()?.model_id.clone(),
+                    dataset_id: self
+                        .dataset
+                        .as_ref()?
+                        .metadata_id
+                        .clone()
+                        .unwrap_or_default(),
+                })
         }) else {
             self.last_error = Some("No resumable checkpoint found.".into());
             return;
@@ -589,11 +661,23 @@ impl AppCore {
         };
         let tokenizer = match Tokenizer::load(tokenizer_path) {
             Ok(v) => v,
-            Err(e) => { self.last_error = Some(e); return; }
+            Err(e) => {
+                self.last_error = Some(e);
+                return;
+            }
         };
-        let trainer = match Trainer::from_checkpoint(&recovery.checkpoint, tokenizer, dataset.path.clone(), dataset.format.clone(), &self.root) {
+        let trainer = match Trainer::from_checkpoint(
+            &recovery.checkpoint,
+            tokenizer,
+            dataset.path.clone(),
+            dataset.format.clone(),
+            &self.root,
+        ) {
             Ok(v) => v,
-            Err(e) => { self.last_error = Some(e); return; }
+            Err(e) => {
+                self.last_error = Some(e);
+                return;
+            }
         };
         let mut worker = TrainingWorker::spawn(trainer, Some(self.root.join("training.command")));
         if let Err(e) = worker.send(TrainingCommand::Resume) {
@@ -606,7 +690,10 @@ impl AppCore {
         self.training.epoch = recovery.epoch;
         self.worker = Some(worker);
         self.log_event(format!("Resuming from checkpoint step {}.", recovery.step));
-        self.logger.training(format!("Resuming from checkpoint {}", recovery.checkpoint.display()));
+        self.logger.training(format!(
+            "Resuming from checkpoint {}",
+            recovery.checkpoint.display()
+        ));
         self.recovery_session = None;
     }
 
@@ -660,7 +747,10 @@ impl AppCore {
             }
         });
         match serde_json::to_string_pretty(&report).and_then(|v| {
-            let path = self.root.join("reports").join(format!("training-{}.json", now_ms()));
+            let path = self
+                .root
+                .join("reports")
+                .join(format!("training-{}.json", now_ms()));
             fs::create_dir_all(path.parent().unwrap()).map_err(serde_json::Error::io)?;
             fs::write(&path, v).map_err(serde_json::Error::io)?;
             Ok(path)
@@ -686,7 +776,10 @@ impl AppCore {
         if prompt.is_empty() {
             return;
         }
-        self.chat_messages.push(ChatMessage { role: "User", text: prompt.clone() });
+        self.chat_messages.push(ChatMessage {
+            role: "User",
+            text: prompt.clone(),
+        });
         self.chat_input.clear();
         self.chat_generated.clear();
         self.chat_generating = true;
@@ -700,15 +793,22 @@ impl AppCore {
                 let tokenizer = Tokenizer::load(&tokenizer_path)?;
                 let mut engine = InferenceEngine::new(seed);
                 engine.load(&model_path)?;
-                engine.generate_stream_cancelled(&tokenizer.encode(&prompt), tokenizer.eos_id(), max_tokens, &generation, |_token, sequence| {
-                    let prompt_len = tokenizer.encode(&prompt).len();
-                    let generated_ids = &sequence[prompt_len.min(sequence.len())..];
-                    if let Ok(generated) = tokenizer.decode(generated_ids) {
-                        let _ = tx.send(ChatEvent::Token(generated));
-                    }
-                    !stop.load(Ordering::Relaxed)
-                })?;
-                tx.send(ChatEvent::Finished(Ok(()))).map_err(|e| e.to_string())?;
+                engine.generate_stream_cancelled(
+                    &tokenizer.encode(&prompt),
+                    tokenizer.eos_id(),
+                    max_tokens,
+                    &generation,
+                    |_token, sequence| {
+                        let prompt_len = tokenizer.encode(&prompt).len();
+                        let generated_ids = &sequence[prompt_len.min(sequence.len())..];
+                        if let Ok(generated) = tokenizer.decode(generated_ids) {
+                            let _ = tx.send(ChatEvent::Token(generated));
+                        }
+                        !stop.load(Ordering::Relaxed)
+                    },
+                )?;
+                tx.send(ChatEvent::Finished(Ok(())))
+                    .map_err(|e| e.to_string())?;
                 Ok(())
             })();
             if let Err(error) = result {
@@ -763,7 +863,8 @@ impl AppCore {
                 TrainingEvent::CheckpointSaved(path) => {
                     self.training.checkpoint = Some(path.clone());
                     self.persist_checkpoint_model(&path);
-                    self.logger.training(format!("Checkpoint saved: {}", path.display()));
+                    self.logger
+                        .training(format!("Checkpoint saved: {}", path.display()));
                     self.log_event(format!("Checkpoint saved: {}", path.display()));
                 }
                 TrainingEvent::Paused => {
@@ -777,7 +878,11 @@ impl AppCore {
                 }
                 TrainingEvent::Completed => {
                     self.training.state = TrainingStatus::Completed;
-                    self.training.final_checksum = self.model.as_ref().map(|m| load_model_info(&m.path).ok().map(|i| i.checksum)).flatten();
+                    self.training.final_checksum = self
+                        .model
+                        .as_ref()
+                        .map(|m| load_model_info(&m.path).ok().map(|i| i.checksum))
+                        .flatten();
                     self.log_event("Training completed.");
                     self.logger.training("Training completed");
                     self.worker = None;
@@ -794,7 +899,7 @@ impl AppCore {
                     self.logger.training(format!("Training failed: {error}"));
                     self.worker = None;
                 }
-                }
+            }
         }
         if self.worker.as_ref().is_some_and(|w| w.is_finished()) && self.is_trainer_running() {
             self.training.state = TrainingStatus::Failed;
@@ -805,12 +910,16 @@ impl AppCore {
     }
 
     fn persist_checkpoint_model(&mut self, checkpoint: &Path) {
-        let Some(model_path) = self.config.model_path.as_ref().map(PathBuf::from) else { return };
+        let Some(model_path) = self.config.model_path.as_ref().map(PathBuf::from) else {
+            return;
+        };
         match Checkpoint::load_latest_or_previous(checkpoint)
-            .and_then(|(data, _)| AiNet::from_aimodel_bytes(&data.model_bytes)) {
+            .and_then(|(data, _)| AiNet::from_aimodel_bytes(&data.model_bytes))
+        {
             Ok(model) => {
                 if let Err(error) = model.save(&model_path) {
-                    self.logger.app(format!("checkpoint model publish failed: {error}"));
+                    self.logger
+                        .app(format!("checkpoint model publish failed: {error}"));
                     self.last_error = Some(error);
                 } else if let Ok(info) = load_model_info(&model_path) {
                     if let Some(current) = self.model.as_mut() {
@@ -820,7 +929,8 @@ impl AppCore {
                 }
             }
             Err(error) => {
-                self.logger.app(format!("checkpoint model load failed: {error}"));
+                self.logger
+                    .app(format!("checkpoint model load failed: {error}"));
             }
         }
     }
@@ -830,19 +940,28 @@ impl AppCore {
             parameter_count: snapshot.parameter_count,
             checksum: snapshot.checksum,
             gradient_norm: snapshot.gradient_magnitude,
-            weight_norm: snapshot.layers.iter().map(|l| l.weight_norm as f64 * l.weight_norm as f64).sum::<f64>().sqrt() as f32,
+            weight_norm: snapshot
+                .layers
+                .iter()
+                .map(|l| l.weight_norm as f64 * l.weight_norm as f64)
+                .sum::<f64>()
+                .sqrt() as f32,
             updated_parameters: snapshot.updated_parameters,
             average_update: snapshot.average_update,
             max_update: snapshot.max_update,
-            layers: snapshot.layers.into_iter().map(|layer| LayerStats {
-                layer: layer.layer,
-                activation_mean: layer.activation_mean,
-                activation_min: layer.activation_min,
-                activation_max: layer.activation_max,
-                weight_norm: layer.weight_norm,
-                gradient_norm: layer.gradient_norm,
-                memory_norm: layer.memory_norm,
-            }).collect(),
+            layers: snapshot
+                .layers
+                .into_iter()
+                .map(|layer| LayerStats {
+                    layer: layer.layer,
+                    activation_mean: layer.activation_mean,
+                    activation_min: layer.activation_min,
+                    activation_max: layer.activation_max,
+                    weight_norm: layer.weight_norm,
+                    gradient_norm: layer.gradient_norm,
+                    memory_norm: layer.memory_norm,
+                })
+                .collect(),
         };
         if let Some(model) = &mut self.model {
             model.checksum = snapshot.checksum;
@@ -859,8 +978,12 @@ impl AppCore {
         self.training.tokens_per_second = progress.tokens_per_second;
         self.training.gradient_norm = progress.gradient_norm;
         self.training.learning_rate = self.config.training.learning_rate;
-        let elapsed = self.training.started_at_ms.unwrap_or(progress.timestamp_unix_ms);
-        self.training.elapsed_seconds = progress.timestamp_unix_ms.saturating_sub(elapsed) as f64 / 1000.0;
+        let elapsed = self
+            .training
+            .started_at_ms
+            .unwrap_or(progress.timestamp_unix_ms);
+        self.training.elapsed_seconds =
+            progress.timestamp_unix_ms.saturating_sub(elapsed) as f64 / 1000.0;
         let loss = progress.loss;
         self.training.avg_loss = Some(match self.training.avg_loss {
             None => loss,
@@ -873,11 +996,16 @@ impl AppCore {
                 self.loss_points.pop_front();
             }
         }
-        self.log_event(format!("Step {} • loss {:.5}", progress.step, progress.loss));
+        self.log_event(format!(
+            "Step {} • loss {:.5}",
+            progress.step, progress.loss
+        ));
     }
 
     fn poll_tokenizer_job(&mut self) {
-        let Some(rx) = &self.tokenizer_job_rx else { return };
+        let Some(rx) = &self.tokenizer_job_rx else {
+            return;
+        };
         if let Ok(result) = rx.try_recv() {
             self.tokenizer_job_rx = None;
             match result {
@@ -908,7 +1036,10 @@ impl AppCore {
                     if let Err(error) = result {
                         self.last_error = Some(error);
                     } else {
-                        self.chat_messages.push(ChatMessage { role: "Ai", text: self.chat_generated.clone() });
+                        self.chat_messages.push(ChatMessage {
+                            role: "Ai",
+                            text: self.chat_generated.clone(),
+                        });
                     }
                     self.chat_stop = None;
                     self.chat_rx = None;
@@ -919,10 +1050,24 @@ impl AppCore {
 
     fn detect_training_recovery(&mut self) {
         let status_path = self.root.join("training-status.json");
-        let Ok(content) = fs::read_to_string(status_path) else { return };
-        let Ok(state) = serde_json::from_str::<crate::training::TrainingState>(&content) else { return };
-        if matches!(state.status, TrainingStatus::Running | TrainingStatus::Pausing | TrainingStatus::Saving | TrainingStatus::Resuming) {
-            let candidate = self.root.join("runs").join(&state.run_id).join("checkpoints/checkpoint-latest.aicheckpoint");
+        let Ok(content) = fs::read_to_string(status_path) else {
+            return;
+        };
+        let Ok(state) = serde_json::from_str::<crate::training::TrainingState>(&content) else {
+            return;
+        };
+        if matches!(
+            state.status,
+            TrainingStatus::Running
+                | TrainingStatus::Pausing
+                | TrainingStatus::Saving
+                | TrainingStatus::Resuming
+        ) {
+            let candidate = self
+                .root
+                .join("runs")
+                .join(&state.run_id)
+                .join("checkpoints/checkpoint-latest.aicheckpoint");
             if candidate.exists() {
                 let dataset_id = state.cursor.dataset_id.clone();
                 self.recovery_session = Some(TrainingRecovery {
@@ -930,10 +1075,17 @@ impl AppCore {
                     step: state.step,
                     epoch: state.epoch,
                     checkpoint: candidate,
-                    model_id: self.model.as_ref().and_then(|m| m.config.as_ref().map(|c| c.model_id.clone())).unwrap_or_default(),
+                    model_id: self
+                        .model
+                        .as_ref()
+                        .and_then(|m| m.config.as_ref().map(|c| c.model_id.clone()))
+                        .unwrap_or_default(),
                     dataset_id,
                 });
-                self.events.push_front(format!("Previous training session found at step {}.", state.step));
+                self.events.push_front(format!(
+                    "Previous training session found at step {}.",
+                    state.step
+                ));
             }
         }
     }
@@ -942,10 +1094,23 @@ impl AppCore {
         if let Ok(mut ctx) = self.crash_context.lock() {
             ctx.application_state = format!("{:?}", self.page.name());
             ctx.training_state = self.training.label().into();
-            ctx.model_id = self.model.as_ref().and_then(|m| m.config.as_ref().map(|c| c.model_id.clone())).unwrap_or_default();
-            ctx.dataset_id = self.dataset.as_ref().and_then(|d| d.metadata_id.clone()).unwrap_or_default();
+            ctx.model_id = self
+                .model
+                .as_ref()
+                .and_then(|m| m.config.as_ref().map(|c| c.model_id.clone()))
+                .unwrap_or_default();
+            ctx.dataset_id = self
+                .dataset
+                .as_ref()
+                .and_then(|d| d.metadata_id.clone())
+                .unwrap_or_default();
             ctx.last_training_step = self.training.step;
-            ctx.last_checkpoint = self.training.checkpoint.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+            ctx.last_checkpoint = self
+                .training
+                .checkpoint
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
             ctx.cpu = self.resources.cpu_name.clone();
             ctx.ram_used_mb = self.resources.ram_used_bytes / 1024 / 1024;
             ctx.ram_available_mb = self.resources.ram_available_bytes / 1024 / 1024;
@@ -961,7 +1126,9 @@ impl AppCore {
     pub fn log_event(&mut self, event: impl Into<String>) {
         let value = event.into();
         self.events.push_back(value);
-        while self.events.len() > 200 { self.events.pop_front(); }
+        while self.events.len() > 200 {
+            self.events.pop_front();
+        }
     }
 
     pub fn format_mb(bytes: u64) -> String {
@@ -969,7 +1136,9 @@ impl AppCore {
     }
 
     pub fn low_end_profile(&self) -> bool {
-        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(2);
         self.resources.ram_available_bytes < 8 * 1024 * 1024 * 1024 || cores <= 4
     }
 }
@@ -1006,15 +1175,30 @@ fn previous_path(path: &Path) -> PathBuf {
 
 fn parse_page(value: &str) -> AppPage {
     let normalized = value.to_ascii_lowercase();
-    AppPage::ALL.into_iter().find(|p| p.name().to_ascii_lowercase() == normalized).unwrap_or(AppPage::Home)
+    AppPage::ALL
+        .into_iter()
+        .find(|p| p.name().to_ascii_lowercase() == normalized)
+        .unwrap_or(AppPage::Home)
 }
 
 fn sanitize_file_name(value: &str) -> String {
-    value.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
+    value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
@@ -1023,9 +1207,13 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
         let a = Tensor::new(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])?;
         let b = Tensor::new(vec![5.0, 6.0, 7.0, 8.0], &[2, 2])?;
         let c = a.matmul(&b)?;
-        if c.data != vec![19.0, 22.0, 43.0, 50.0] { return Err("matmul mismatch".into()); }
+        if c.data != vec![19.0, 22.0, 43.0, 50.0] {
+            return Err("matmul mismatch".into());
+        }
         let p = Tensor::new(vec![1.0, 2.0, 3.0], &[3])?.softmax()?;
-        if (p.sum() - 1.0).abs() > 1e-5 { return Err("softmax normalization mismatch".into()); }
+        if (p.sum() - 1.0).abs() > 1e-5 {
+            return Err("softmax normalization mismatch".into());
+        }
         Ok(())
     };
     push_test(&mut results, "Tensor test", tensor());
@@ -1033,12 +1221,21 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
     let model_test = || -> Result<(), String> {
         let tokenizer = Tokenizer::new_default();
         let model = AiNet::new(crate::model::ModelConfig {
-            architecture: "AiNet-v1.1".into(), model_id: "self-test".into(),
-            vocab_size: tokenizer.vocab_size(), embedding_dim: 8, hidden_dim: 8, layer_count: 2, sequence_length: 8, seed: 7,
+            architecture: "AiNet-v1.1".into(),
+            model_id: "self-test".into(),
+            vocab_size: tokenizer.vocab_size(),
+            embedding_dim: 8,
+            hidden_dim: 8,
+            layer_count: 2,
+            sequence_length: 8,
+            seed: 7,
         })?;
         let ids = tokenizer.encode("hello");
-        let (loss, _) = model.sequence_loss(&ids[..4.min(ids.len())], &ids[..4.min(ids.len())], None)?;
-        if !loss.is_finite() { return Err("non-finite sequence loss".into()); }
+        let (loss, _) =
+            model.sequence_loss(&ids[..4.min(ids.len())], &ids[..4.min(ids.len())], None)?;
+        if !loss.is_finite() {
+            return Err("non-finite sequence loss".into());
+        }
         Ok(())
     };
     push_test(&mut results, "AiNet/AiCell forward", model_test());
@@ -1046,18 +1243,30 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
     let gradient = || -> Result<(), String> {
         let tokenizer = Tokenizer::new_default();
         let mut model = AiNet::new(crate::model::ModelConfig {
-            architecture: "AiNet-v1.1".into(), model_id: "gradient".into(),
-            vocab_size: tokenizer.vocab_size(), embedding_dim: 8, hidden_dim: 8, layer_count: 1, sequence_length: 4, seed: 11,
+            architecture: "AiNet-v1.1".into(),
+            model_id: "gradient".into(),
+            vocab_size: tokenizer.vocab_size(),
+            embedding_dim: 8,
+            hidden_dim: 8,
+            layer_count: 1,
+            sequence_length: 4,
+            seed: 11,
         })?;
         let ids = tokenizer.encode("abcd");
         let before = model.weights_checksum();
         let loss = model.train_step(&ids[..4], &ids[..4], None)?;
-        if !loss.is_finite() { return Err("train loss not finite".into()); }
+        if !loss.is_finite() {
+            return Err("train loss not finite".into());
+        }
         let norm = model.global_gradient_norm();
-        if !norm.is_finite() || norm <= 0.0 { return Err("gradient norm invalid".into()); }
+        if !norm.is_finite() || norm <= 0.0 {
+            return Err("gradient norm invalid".into());
+        }
         let mut opt = crate::optimizer::AdamW::new(0.001, 0.01);
         opt.step(model.parameters_mut());
-        if model.weights_checksum() == before { return Err("weights did not change".into()); }
+        if model.weights_checksum() == before {
+            return Err("weights did not change".into());
+        }
         Ok(())
     };
     push_test(&mut results, "Gradient/training mutation", gradient());
@@ -1065,12 +1274,20 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
     let serialization = || -> Result<(), String> {
         let tokenizer = Tokenizer::new_default();
         let model = AiNet::new(crate::model::ModelConfig {
-            architecture: "AiNet-v1.1".into(), model_id: "serialization".into(),
-            vocab_size: tokenizer.vocab_size(), embedding_dim: 4, hidden_dim: 4, layer_count: 1, sequence_length: 4, seed: 9,
+            architecture: "AiNet-v1.1".into(),
+            model_id: "serialization".into(),
+            vocab_size: tokenizer.vocab_size(),
+            embedding_dim: 4,
+            hidden_dim: 4,
+            layer_count: 1,
+            sequence_length: 4,
+            seed: 9,
         })?;
         let bytes = model.to_aimodel_bytes()?;
         let restored = AiNet::from_aimodel_bytes(&bytes)?;
-        if restored.weights_checksum() != model.weights_checksum() { return Err("model checksum changed after round trip".into()); }
+        if restored.weights_checksum() != model.weights_checksum() {
+            return Err("model checksum changed after round trip".into());
+        }
         Ok(())
     };
     push_test(&mut results, ".aimodel serialization", serialization());
@@ -1079,7 +1296,9 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
         let tokenizer = Tokenizer::new_default();
         let text = "Привіт, hello 🙂";
         let ids = tokenizer.encode(text);
-        if tokenizer.decode(&ids)? != text { return Err("UTF-8 tokenizer round trip failed".into()); }
+        if tokenizer.decode(&ids)? != text {
+            return Err("UTF-8 tokenizer round trip failed".into());
+        }
         Ok(())
     };
     push_test(&mut results, "Tokenizer", tokenizer_test());
@@ -1090,7 +1309,9 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
         let path = dir.join("tiny.txt");
         fs::write(&path, "hello world\nsecond sample\n").map_err(|e| e.to_string())?;
         let report = validate(&path, DatasetFormat::Txt, None)?;
-        if report.errors != 0 || report.samples != 2 { return Err(format!("unexpected dataset report: {:?}", report)); }
+        if report.errors != 0 || report.samples != 2 {
+            return Err(format!("unexpected dataset report: {:?}", report));
+        }
         Ok(())
     };
     push_test(&mut results, "Dataset validation", dataset_test());
@@ -1103,8 +1324,14 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
         fs::write(&dataset, "abcdefghi\n").map_err(|e| e.to_string())?;
         let tokenizer = Tokenizer::new_default();
         let model = AiNet::new(crate::model::ModelConfig {
-            architecture: "AiNet-v1.1".into(), model_id: "checkpoint-test".into(),
-            vocab_size: tokenizer.vocab_size(), embedding_dim: 4, hidden_dim: 4, layer_count: 1, sequence_length: 4, seed: 12,
+            architecture: "AiNet-v1.1".into(),
+            model_id: "checkpoint-test".into(),
+            vocab_size: tokenizer.vocab_size(),
+            embedding_dim: 4,
+            hidden_dim: 4,
+            layer_count: 1,
+            sequence_length: 4,
+            seed: 12,
         })?;
         let mut cfg = TrainingConfig::low_end();
         cfg.sequence_length = 4;
@@ -1117,9 +1344,18 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
         worker.send(TrainingCommand::Start)?;
         loop {
             match worker.events.recv().map_err(|e| e.to_string())? {
-                TrainingEvent::CheckpointSaved(path) if path.exists() => { worker.join(); return Ok(()); }
-                TrainingEvent::Completed => { worker.join(); return Err("completed without checkpoint event".into()); }
-                TrainingEvent::Failed(e) => { worker.join(); return Err(e); }
+                TrainingEvent::CheckpointSaved(path) if path.exists() => {
+                    worker.join();
+                    return Ok(());
+                }
+                TrainingEvent::Completed => {
+                    worker.join();
+                    return Err("completed without checkpoint event".into());
+                }
+                TrainingEvent::Failed(e) => {
+                    worker.join();
+                    return Err(e);
+                }
                 _ => {}
             }
         }
@@ -1131,7 +1367,15 @@ fn run_self_tests(root: &Path) -> Vec<SelfTestResult> {
 
 fn push_test(results: &mut Vec<SelfTestResult>, name: &str, result: Result<(), String>) {
     match result {
-        Ok(()) => results.push(SelfTestResult { name: name.into(), ok: true, detail: "PASS".into() }),
-        Err(error) => results.push(SelfTestResult { name: name.into(), ok: false, detail: error }),
+        Ok(()) => results.push(SelfTestResult {
+            name: name.into(),
+            ok: true,
+            detail: "PASS".into(),
+        }),
+        Err(error) => results.push(SelfTestResult {
+            name: name.into(),
+            ok: false,
+            detail: error,
+        }),
     }
 }

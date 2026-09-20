@@ -28,8 +28,7 @@ pub struct Logger {
 
 impl Logger {
     pub fn new(directory: impl AsRef<Path>) -> Result<Self, String> {
-        fs::create_dir_all(directory.as_ref())
-            .map_err(|e| format!("create log directory: {e}"))?;
+        fs::create_dir_all(directory.as_ref()).map_err(|e| format!("create log directory: {e}"))?;
         Ok(Self {
             directory: directory.as_ref().to_path_buf(),
             lock: Arc::new(Mutex::new(())),
@@ -104,7 +103,13 @@ impl RuntimeGuard {
             env!("CARGO_PKG_VERSION")
         );
         fs::write(&path, body).map_err(|e| format!("write runtime lock: {e}"))?;
-        Ok((Self { lock_path: path, active: true }, previous))
+        Ok((
+            Self {
+                lock_path: path,
+                active: true,
+            },
+            previous,
+        ))
     }
 
     pub fn mark_clean(&mut self) {
@@ -132,7 +137,12 @@ pub fn install_panic_hook(logger: Logger, context: Arc<Mutex<CrashContext>>) {
             .payload()
             .downcast_ref::<&str>()
             .copied()
-            .or_else(|| panic_info.payload().downcast_ref::<String>().map(String::as_str))
+            .or_else(|| {
+                panic_info
+                    .payload()
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+            })
             .unwrap_or("unknown panic payload");
         let thread_name = thread::current().name().unwrap_or("unnamed").to_string();
         let snapshot = context.lock().map(|v| v.clone()).unwrap_or_default();

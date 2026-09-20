@@ -33,7 +33,9 @@ impl TrainingWorker {
     }
 
     pub fn is_finished(&self) -> bool {
-        self.join.as_ref().is_none_or(std::thread::JoinHandle::is_finished)
+        self.join
+            .as_ref()
+            .is_none_or(std::thread::JoinHandle::is_finished)
     }
 
     pub fn join(&mut self) {
