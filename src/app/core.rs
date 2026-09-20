@@ -219,7 +219,7 @@ pub struct AppCore {
     pub self_test_rx: Option<Receiver<Vec<SelfTestResult>>>,
     pub self_test_result: Option<Vec<SelfTestResult>>,
     pub tokenizer_job_rx: Option<Receiver<Result<PathBuf, String>>>,
-    pub chat_rx: Option<Receiver<ChatEvent>>,
+    chat_rx: Option<Receiver<ChatEvent>>,
     pub chat_stop: Option<Arc<AtomicBool>>,
     pub chat_messages: Vec<ChatMessage>,
     pub chat_input: String,
@@ -519,6 +519,7 @@ impl AppCore {
         self.log_event("Tokenizer training started.");
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_model(
         &mut self,
         name: &str,
@@ -599,11 +600,12 @@ impl AppCore {
     pub fn apply_low_memory_profile(&mut self) {
         self.config.performance_profile = "LOW-END".into();
         self.config.training.max_cpu_threads = 2;
-        self.config.training.sequence_length = self.config.training.sequence_length.min(64).max(8);
+        self.config.training.sequence_length =
+            self.config.training.sequence_length.clamp(8, 64);
         self.config.training.gradient_accumulation =
-            self.config.training.gradient_accumulation.min(4).max(1);
+            self.config.training.gradient_accumulation.clamp(1, 4);
         self.config.training.memory_budget_mb =
-            self.config.training.memory_budget_mb.min(2048).max(512);
+            self.config.training.memory_budget_mb.clamp(512, 2048);
         self.save_config();
         self.log_event("LOW-END profile applied.");
     }

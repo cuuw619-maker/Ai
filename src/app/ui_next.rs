@@ -229,10 +229,9 @@ impl AiApplication {
                 }
                 if self.core.training.state == TrainingStatus::Failed
                     && self.core.training.checkpoint.is_some()
+                    && ui.button("LOAD LAST CHECKPOINT").clicked()
                 {
-                    if ui.button("LOAD LAST CHECKPOINT").clicked() {
-                        self.core.resume_training();
-                    }
+                    self.core.resume_training();
                 }
             });
         });

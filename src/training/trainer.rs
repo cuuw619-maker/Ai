@@ -804,30 +804,6 @@ fn append_evaluation(path: &Path, run_id: &str, epoch: u64, loss: f32) -> Result
     writeln!(file, "{line}").map_err(|e| format!("append evaluation metrics: {e}"))
 }
 
-fn append_metrics(path: &Path, p: &TrainingProgress) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("create metrics dir: {e}"))?;
-    }
-    let line = serde_json::json!({
-        "timestamp_unix_ms": p.timestamp_unix_ms,
-        "run_id": p.run_id,
-        "state": format!("{:?}", p.status),
-        "step": p.step,
-        "epoch": p.epoch,
-        "loss": p.loss,
-        "tokens_seen": p.tokens_seen,
-        "tokens_per_second": p.tokens_per_second,
-        "gradient_norm": p.gradient_norm,
-        "clipped": p.clipped
-    });
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| format!("open metrics: {e}"))?;
-    writeln!(file, "{line}").map_err(|e| format!("append metrics: {e}"))
-}
-
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

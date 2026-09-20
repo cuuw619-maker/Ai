@@ -22,11 +22,11 @@ impl AppCore {
         }
 
         self.config.performance_profile = "LOW-END".into();
-        self.config.training.max_cpu_threads = self.config.training.max_cpu_threads.min(2).max(1);
+        self.config.training.max_cpu_threads = self.config.training.max_cpu_threads.clamp(1, 2);
         self.config.training.gradient_accumulation =
-            self.config.training.gradient_accumulation.min(4).max(1);
+            self.config.training.gradient_accumulation.clamp(1, 4);
         self.config.training.memory_budget_mb =
-            self.config.training.memory_budget_mb.min(2048).max(512);
+            self.config.training.memory_budget_mb.clamp(512, 2048);
 
         if let Some(model) = &self.model {
             if let Some(config) = &model.config {
@@ -39,7 +39,7 @@ impl AppCore {
             }
         } else {
             self.config.training.sequence_length =
-                self.config.training.sequence_length.min(64).max(1);
+                self.config.training.sequence_length.clamp(1, 64);
         }
 
         self.log_event("Automatic LOW-END performance profile enabled.");

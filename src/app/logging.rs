@@ -194,19 +194,6 @@ pub fn install_panic_hook(logger: Logger, context: Arc<Mutex<CrashContext>>) {
     }));
 }
 
-pub fn show_startup_error(details: &str, log_path: &Path) {
-    let description = format!(
-        "Ai failed to start.\n\nError:\n{details}\n\nLog:\n{}",
-        log_path.display()
-    );
-    rfd::MessageDialog::new()
-        .set_title("Ai failed to start")
-        .set_description(&description)
-        .set_buttons(rfd::MessageButtons::Ok)
-        .set_level(rfd::MessageLevel::Error)
-        .show();
-}
-
 fn rotate_if_needed(path: &Path, max_bytes: u64) -> Result<(), String> {
     let len = path.metadata().map(|m| m.len()).unwrap_or(0);
     if len < max_bytes {
