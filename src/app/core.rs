@@ -89,6 +89,8 @@ pub struct TrainingSnapshot {
     pub loss: Option<f32>,
     pub avg_loss: Option<f32>,
     pub best_loss: Option<f32>,
+    pub loss_sum: f64,
+    pub loss_count: u64,
     pub tokens_per_second: f64,
     pub gradient_norm: f32,
     pub learning_rate: f32,
@@ -110,6 +112,8 @@ impl Default for TrainingSnapshot {
             loss: None,
             avg_loss: None,
             best_loss: None,
+            loss_sum: 0.0,
+            loss_count: 0,
             tokens_per_second: 0.0,
             gradient_norm: 0.0,
             learning_rate: 0.0,
@@ -739,7 +743,7 @@ impl AppCore {
                 "step": self.training.step,
                 "tokens": self.training.tokens,
                 "loss": self.training.loss,
-                "avg_loss": self.training.avg_loss,
+            "avg_loss": self.training.avg_loss,
                 "best_loss": self.training.best_loss,
                 "initial_checksum": self.training.initial_checksum,
                 "final_checksum": self.training.final_checksum,
@@ -985,10 +989,9 @@ impl AppCore {
         self.training.elapsed_seconds =
             progress.timestamp_unix_ms.saturating_sub(elapsed) as f64 / 1000.0;
         let loss = progress.loss;
-        self.training.avg_loss = Some(match self.training.avg_loss {
-            None => loss,
-            Some(previous) => previous * 0.98 + loss * 0.02,
-        });
+        self.training.loss_sum += loss as f64;
+        self.training.loss_count = self.training.loss_count.saturating_add(1);
+        self.training.avg_loss = Some((self.training.loss_sum / self.training.loss_count as f64) as f32);
         self.training.best_loss = Some(self.training.best_loss.map_or(loss, |best| best.min(loss)));
         if loss.is_finite() {
             self.loss_points.push_back((progress.step, loss));
