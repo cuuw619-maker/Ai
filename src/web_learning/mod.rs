@@ -546,8 +546,19 @@ impl WebDiscovery {
                 continue;
             }
             if WebParser::is_sitemap(&body) {
-                for url in WebParser::sitemap_links(&body).into_iter().take(settings.max_pages_per_scan) {
-                    if is_http_url(&url) { articles.push(make_article(&url, &url, None, &url, &source.id)); }
+                for url in WebParser::sitemap_links(&body)
+                    .into_iter()
+                    .take(settings.max_pages_per_scan)
+                {
+                    let absolute = absolute_url(&page.final_url, &url);
+                    if is_http_url(&absolute) {
+                        candidates.push(DiscoveredItem {
+                            url: absolute,
+                            title: None,
+                            published_at: None,
+                            content_hint: None,
+                        });
+                    }
                 }
                 continue;
             }
@@ -762,6 +773,21 @@ impl CorpusStore {
         }
         Ok(lines)
     }
+    pub fn mark_inflight_complete(&self, state: &str, limit: usize) -> Result<usize, String> {
+        self.connection()?
+            .execute(
+                "UPDATE training_queue SET state=?1
+                 WHERE id IN (
+                    SELECT id FROM training_queue
+                    WHERE state='inflight'
+                    ORDER BY id
+                    LIMIT ?2
+                 )",
+                params![state, limit as i64],
+            )
+            .map_err(|e| format!("update inflight queue: {e}"))
+    }
+
     pub fn enforce_retention(&self, max_articles: usize) -> Result<usize, String> {
         let mut conn = self.connection()?;
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM articles", [], |row| row.get(0)).map_err(|e| e.to_string())?;
@@ -784,6 +810,11 @@ impl TrainingBridge {
             store.mark_queue_state("inflight", 4096)?;
         }
         Ok((path, lines))
+    }
+
+    pub fn finalize_batch(root: &Path, success: bool) -> Result<usize, String> {
+        let store = CorpusStore::open(root)?;
+        store.mark_inflight_complete(if success { "trained" } else { "queued" }, 4096)
     }
 }
 

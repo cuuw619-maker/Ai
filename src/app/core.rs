@@ -222,6 +222,7 @@ pub struct AppCore {
     pub web_status: WebStatus,
     pub web_stats: WebStats,
     pub web_sources: Vec<crate::web_learning::SourceRecord>,
+    pub web_training_batch: bool,
     pub web: Option<WebLearner>,
     pub training: TrainingSnapshot,
     pub model_stats: ModelStatsSnapshot,
@@ -302,6 +303,7 @@ impl AppCore {
             web_status: WebStatus::Stopped,
             web_stats: WebStats::default(),
             web_sources: Vec::new(),
+            web_training_batch: false,
             web: None,
             training: TrainingSnapshot::default(),
             model_stats: ModelStatsSnapshot::default(),
@@ -693,6 +695,7 @@ impl AppCore {
         self.loss_points.clear();
         self.model_stats = ModelStatsSnapshot::default();
         self.worker = Some(worker);
+        self.web_training_batch = true;
         self.log_event(format!("Web training batch started: {} samples.", lines));
         self.logger.training(format!("Web training batch started from {}", snapshot.display()));
     }
@@ -1231,17 +1234,32 @@ impl AppCore {
                         .model
                         .as_ref()
                         .and_then(|m| load_model_info(&self.root, &m.path).ok().map(|i| i.checksum));
+                    if self.web_training_batch {
+                        match TrainingBridge::finalize_batch(&self.root, true) {
+                            Ok(count) => self.logger.training(format!("Web queue finalized: {count} samples")),
+                            Err(error) => self.logger.training(format!("Web queue finalize failed: {error}")),
+                        }
+                        self.web_training_batch = false;
+                    }
                     self.log_event("Training completed.");
                     self.logger.training("Training completed");
                     self.worker = None;
                 }
                 TrainingEvent::Stopped => {
                     self.training.state = TrainingStatus::Stopped;
+                    if self.web_training_batch {
+                        let _ = TrainingBridge::finalize_batch(&self.root, false);
+                        self.web_training_batch = false;
+                    }
                     self.log_event("Training stopped with a checkpoint.");
                     self.worker = None;
                 }
                 TrainingEvent::Failed(error) => {
                     self.training.state = TrainingStatus::Failed;
+                    if self.web_training_batch {
+                        let _ = TrainingBridge::finalize_batch(&self.root, false);
+                        self.web_training_batch = false;
+                    }
                     self.last_error = Some(error.clone());
                     self.log_event(format!("Training failed: {error}"));
                     self.logger.training(format!("Training failed: {error}"));
