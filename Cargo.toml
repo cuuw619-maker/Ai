@@ -8,7 +8,7 @@ description = "AiNet v1: a from-scratch recurrent neural network implemented in 
 [profile.release]
 lto = "thin"
 codegen-units = 1
-panic = "abort"
+panic = "unwind"
 
 [dependencies]
 eframe = "0.33"
