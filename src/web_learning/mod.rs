@@ -24,8 +24,6 @@ pub enum SourcePriority {
     Normal,
     Low,
 }
-impl Default for SourcePriority { fn default() -> Self { Self::Normal } }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WebStatus { Stopped, Starting, Running, Pausing, Paused, Stopping, Offline, Error }
 

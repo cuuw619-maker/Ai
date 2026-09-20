@@ -1318,6 +1318,7 @@ fn routing_stats_from_hard(active: &[bool], channels: usize, probs: &[f32]) -> R
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn affine_selected(
     w: &[f32],
     u: &[f32],
