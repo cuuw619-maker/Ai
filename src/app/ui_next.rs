@@ -128,10 +128,23 @@ impl AiApplication {
                 );
                 ui.add_space(14.0);
 
-                for page in AppPage::ALL {
+                for page in [
+                    AppPage::Home,
+                    AppPage::Chat,
+                    AppPage::Train,
+                    AppPage::WebLearning,
+                    AppPage::Model,
+                    AppPage::Settings,
+                    AppPage::Logs,
+                ] {
                     let selected = self.core.page == page;
+                    let nav_label = if page == AppPage::WebLearning {
+                        "WEB"
+                    } else {
+                        localization::page_label(page, &self.core.config.ui_language)
+                    };
                     let button =
-                        egui::Button::new(RichText::new(localization::page_label(page, &self.core.config.ui_language)).strong().size(if selected {
+                        egui::Button::new(RichText::new(nav_label).strong().size(if selected {
                             13.0
                         } else {
                             12.0
@@ -592,6 +605,49 @@ impl AiApplication {
     }
 
     fn web_learning(&mut self, ui: &mut Ui) {
+        ui.horizontal_wrapped(|ui| {
+            let found = self.dd_results.len();
+            let downloaded = self
+                .dd_results
+                .iter()
+                .filter(|v| matches!(v.state, DatasetState::Downloaded | DatasetState::Preparing | DatasetState::Ready | DatasetState::UsedInTraining))
+                .count();
+            let prepared = self
+                .dd_results
+                .iter()
+                .filter(|v| matches!(v.state, DatasetState::Ready | DatasetState::UsedInTraining))
+                .count();
+            metric_card(
+                ui,
+                "FOUND",
+                found.to_string(),
+                "real discovery results".to_string(),
+            );
+            metric_card(
+                ui,
+                "DOWNLOADED",
+                downloaded.to_string(),
+                "local dataset files".to_string(),
+            );
+            metric_card(
+                ui,
+                "PREPARED",
+                prepared.to_string(),
+                ".aicorpus ready".to_string(),
+            );
+            metric_card(
+                ui,
+                "TRAINING",
+                self.core.training.label(),
+                format!(
+                    "step {} • tokens {} • loss {}",
+                    self.core.training.step,
+                    self.core.training.tokens,
+                    loss_string(self.core.training.loss)
+                ),
+            );
+        });
+        ui.add_space(8.0);
         card(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Source URL");
@@ -624,9 +680,17 @@ impl AiApplication {
             ui.horizontal_wrapped(|ui| {
                 if ui.button("START").clicked() {
                     self.core.start_web_learning();
+                    if let Some(manager) = &self.dataset_discovery {
+                        if let Err(error) = manager.auto_discover(self.discover_search()) {
+                            self.core.last_error = Some(error);
+                        }
+                    }
                 }
                 if ui.button("PAUSE WEB").clicked() {
                     self.core.pause_web_learning();
+                    if let Some(manager) = &self.dataset_discovery {
+                        let _ = manager.pause();
+                    }
                 }
                 if ui.button("PAUSE TRAINING").clicked() {
                     self.core.pause_training();
@@ -639,6 +703,9 @@ impl AiApplication {
                 }
                 if ui.button("STOP").clicked() {
                     self.core.stop_web_learning();
+                    if let Some(manager) = &self.dataset_discovery {
+                        let _ = manager.stop();
+                    }
                 }
                 if ui.button("STOP ALL").clicked() {
                     self.core.stop_all();
@@ -713,6 +780,9 @@ impl AiApplication {
         if let Some(error) = self.core.last_error.as_deref() {
             error_card(ui, error);
         }
+
+        ui.add_space(12.0);
+        self.data_discovery(ui);
     }
 
 
@@ -804,7 +874,33 @@ impl AiApplication {
                 DatasetEvent::DownloadNeedsApproval { id, size_bytes, limit_bytes } => self.dd_pending_approval = Some((id, size_bytes, limit_bytes)),
                 DatasetEvent::Preview { id, samples } => self.dd_preview = Some((id, samples)),
                 DatasetEvent::Ready(candidate) => self.upsert_dataset_candidate(candidate),
-                DatasetEvent::UsedForTraining(candidate) => { self.upsert_dataset_candidate(candidate.clone()); self.select_discovered_dataset_for_training(&candidate); }
+                DatasetEvent::UsedForTraining(candidate) => {
+                    self.upsert_dataset_candidate(candidate.clone());
+                    self.select_discovered_dataset_for_training(&candidate);
+                    if !self.core.safe_mode && self.core.model.is_none() {
+                        self.core.ensure_default_tokenizer();
+                        let vocab = self
+                            .core
+                            .tokenizer_path
+                            .as_ref()
+                            .and_then(|path| crate::tokenizer::Tokenizer::load(path).ok())
+                            .map(|tokenizer| tokenizer.vocab_size())
+                            .unwrap_or(263);
+                        let sequence = self.core.config.training.sequence_length.min(64);
+                        self.core.create_model(
+                            "web-auto",
+                            vocab,
+                            64,
+                            64,
+                            2,
+                            sequence,
+                            1,
+                        );
+                    }
+                    if self.core.model.is_some() && self.core.dataset.is_some() {
+                        self.core.start_training();
+                    }
+                }
                 DatasetEvent::Removed(id) => self.dd_results.retain(|v| v.id != id),
                 DatasetEvent::Error { id, message } => {
                     if let Some(id) = id { if let Some(v) = self.dd_results.iter_mut().find(|v| v.id == id) { v.state = DatasetState::Failed; v.error = Some(message.clone()); } }
@@ -855,7 +951,11 @@ impl AiApplication {
                 if let Some(manager) = &self.dataset_discovery { if let Err(e) = manager.search(self.discover_search()) { self.core.last_error = Some(e); } }
             }
             if ui.add_enabled(enabled, egui::Button::new("AUTO DISCOVER")).clicked() {
-                if let Some(manager) = &self.dataset_discovery { if let Err(e) = manager.search(self.discover_search()) { self.core.last_error = Some(e); } }
+                if let Some(manager) = &self.dataset_discovery {
+                    if let Err(e) = manager.auto_discover(self.discover_search()) {
+                        self.core.last_error = Some(e);
+                    }
+                }
             }
             ui.add(egui::Slider::new(&mut self.dd_min_quality, 0.0..=1.0).text("minimum quality"));
             ui.label(if self.dd_search_message.is_empty() { "Ready." } else { &self.dd_search_message });
