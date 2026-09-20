@@ -20,7 +20,9 @@ impl TinyEvaluator {
 
 impl Evaluator for TinyEvaluator {
     fn evaluate(&mut self, model: &AiNet) -> Result<f32, String> {
-        model.sequence_loss(&self.input, &self.target, None).map(|(loss, _)| loss)
+        model
+            .sequence_loss(&self.input, &self.target, None)
+            .map(|(loss, _)| loss)
     }
 }
 
