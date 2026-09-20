@@ -1,6 +1,6 @@
 use super::core::{AppCore, AppPage, ModelInfo};
 use crate::inference::GenerationConfig;
-use eframe::egui::{self, Align, Color32, FontId, Layout, RichText, TextStyle, Ui, Vec2, WidgetText};
+use eframe::egui::{self, Align, Color32, FontId, Layout, RichText, TextStyle, Ui, Vec2};
 
 pub struct AiApplication {
     pub core: AppCore,
@@ -258,7 +258,7 @@ impl AiApplication {
                     row_value(ui, "Samples", &report.samples.to_string());
                     row_value(ui, "Errors", &report.errors.to_string());
                     row_value(ui, "Estimated tokens", &report.estimated_tokens.map(|v| v.to_string()).unwrap_or_else(|| "—".into()));
-                    if report.is_valid() {
+                    if report.errors == 0 {
                         ui.colored_label(Color32::from_rgb(90, 220, 120), "VALID");
                     } else {
                         ui.colored_label(Color32::YELLOW, "VALIDATION ERRORS");
@@ -289,16 +289,19 @@ impl AiApplication {
             row_value(ui, "Available RAM", &AppCore::format_mb(available));
             if let Some(model) = &self.core.model {
                 if let Some(config) = &model.config {
-                    if let Ok(m) = crate::model::AiNet::load(&model.path) {
-                        let report = m.memory_report(self.core.config.training.sequence_length);
-                        row_value(ui, "Embedding", &AppCore::format_mb(report.embedding_bytes as u64));
-                        row_value(ui, "Projection", &AppCore::format_mb(report.projection_bytes as u64));
-                        row_value(ui, "Cell weights", &AppCore::format_mb(report.cell_weights_bytes as u64));
-                        row_value(ui, "BPTT cache", &AppCore::format_mb(report.bptt_cache_bytes as u64));
-                        row_value(ui, "Estimated training", &AppCore::format_mb(report.total_bytes() as u64));
-                    } else {
-                        row_value(ui, "Model RAM", "unavailable");
-                    }
+                    let weight_bytes = model.parameter_count.saturating_mul(4);
+                    let bptt_bytes = self.core.config.training.sequence_length
+                        .saturating_mul(config.layer_count)
+                        .saturating_mul(config.hidden_dim)
+                        .saturating_mul(7)
+                        .saturating_mul(4);
+                    let estimated = weight_bytes
+                        .saturating_mul(4)
+                        .saturating_add(bptt_bytes.saturating_mul(2))
+                        .saturating_add(4 * 1024 * 1024);
+                    row_value(ui, "Parameter storage", &AppCore::format_mb(weight_bytes as u64));
+                    row_value(ui, "BPTT estimate", &AppCore::format_mb(bptt_bytes as u64));
+                    row_value(ui, "Estimated training", &AppCore::format_mb(estimated as u64));
                     row_value(ui, "Sequence", &config.sequence_length.to_string());
                 }
             }
@@ -723,5 +726,3 @@ fn draw_loss_graph(ui: &mut Ui, points: &std::collections::VecDeque<(u64, f32)>)
     painter.text(inner.left_top(), egui::Align2::LEFT_TOP, format!("max {:.4}", max_loss), FontId::monospace(11.0), ui.visuals().weak_text_color());
     painter.text(inner.left_bottom(), egui::Align2::LEFT_BOTTOM, format!("min {:.4}", min_loss), FontId::monospace(11.0), ui.visuals().weak_text_color());
 }
-
-fn _unused_widget_text(_: WidgetText) {}
