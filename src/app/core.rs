@@ -964,7 +964,7 @@ impl AppCore {
                     self.training.final_checksum = self
                         .model
                         .as_ref()
-                        .map(|m| load_model_info(&m.path).ok().map(|i| i.checksum))
+                        .map(|m| load_model_info(&self.root, &m.path).ok().map(|i| i.checksum))
                         .flatten();
                     self.log_event("Training completed.");
                     self.logger.training("Training completed");
@@ -1004,7 +1004,7 @@ impl AppCore {
                     self.logger
                         .app(format!("checkpoint model publish failed: {error}"));
                     self.last_error = Some(error);
-                } else if let Ok(info) = load_model_info(&model_path) {
+                } else if let Ok(info) = load_model_info(&self.root, &model_path) {
                     if let Some(current) = self.model.as_mut() {
                         current.checksum = info.checksum;
                         current.file_size = info.file_size;
