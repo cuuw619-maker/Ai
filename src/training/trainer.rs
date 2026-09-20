@@ -35,7 +35,6 @@ pub fn next_run_id(data_root: &Path) -> Result<String, String> {
     Ok(format!("run-{max_id:06}", max_id = max_id + 1))
 }
 
-#[derive(Clone)]
 struct TrainerBuild {
     model: AiNet,
     tokenizer: Tokenizer,
