@@ -76,7 +76,11 @@ pub struct ModelInfo {
 
 impl ModelInfo {
     pub fn status(&self) -> &'static str {
-        if self.trained { "TRAINED" } else { "UNTRAINED" }
+        if self.trained {
+            "TRAINED"
+        } else {
+            "UNTRAINED"
+        }
     }
 }
 
