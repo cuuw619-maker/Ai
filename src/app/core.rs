@@ -144,6 +144,9 @@ pub struct ModelStatsSnapshot {
 #[derive(Clone, Debug, Default)]
 pub struct LayerStats {
     pub layer: usize,
+    pub activation_mean: f32,
+    pub activation_min: f32,
+    pub activation_max: f32,
     pub weight_norm: f32,
     pub gradient_norm: f32,
     pub memory_norm: f32,
@@ -757,6 +760,7 @@ impl AppCore {
                 TrainingEvent::ModelSnapshot(snapshot) => self.apply_model_snapshot(snapshot),
                 TrainingEvent::CheckpointSaved(path) => {
                     self.training.checkpoint = Some(path.clone());
+                    self.persist_checkpoint_model(&path);
                     self.logger.training(format!("Checkpoint saved: {}", path.display()));
                     self.log_event(format!("Checkpoint saved: {}", path.display()));
                 }
@@ -798,17 +802,41 @@ impl AppCore {
         }
     }
 
+    fn persist_checkpoint_model(&mut self, checkpoint: &Path) {
+        let Some(model_path) = self.config.model_path.as_ref().map(PathBuf::from) else { return };
+        match Checkpoint::load_latest_or_previous(checkpoint)
+            .and_then(|(data, _)| AiNet::from_aimodel_bytes(&data.model_bytes)) {
+            Ok(model) => {
+                if let Err(error) = model.save(&model_path) {
+                    self.logger.app(format!("checkpoint model publish failed: {error}"));
+                    self.last_error = Some(error);
+                } else if let Ok(info) = load_model_info(&model_path) {
+                    if let Some(current) = self.model.as_mut() {
+                        current.checksum = info.checksum;
+                        current.file_size = info.file_size;
+                    }
+                }
+            }
+            Err(error) => {
+                self.logger.app(format!("checkpoint model load failed: {error}"));
+            }
+        }
+    }
+
     fn apply_model_snapshot(&mut self, snapshot: ModelTrainingSnapshot) {
         self.model_stats = ModelStatsSnapshot {
             parameter_count: snapshot.parameter_count,
             checksum: snapshot.checksum,
             gradient_norm: snapshot.gradient_magnitude,
-            weight_norm: 0.0,
+            weight_norm: snapshot.layers.iter().map(|l| l.weight_norm as f64 * l.weight_norm as f64).sum::<f64>().sqrt() as f32,
             updated_parameters: snapshot.updated_parameters,
             average_update: snapshot.average_update,
             max_update: snapshot.max_update,
             layers: snapshot.layers.into_iter().map(|layer| LayerStats {
                 layer: layer.layer,
+                activation_mean: layer.activation_mean,
+                activation_min: layer.activation_min,
+                activation_max: layer.activation_max,
                 weight_norm: layer.weight_norm,
                 gradient_norm: layer.gradient_norm,
                 memory_norm: layer.memory_norm,
