@@ -1271,6 +1271,7 @@ fn estimate_parameters(vocab: usize, embedding: usize, hidden: usize, layers: us
 
 fn show_model_info(ui: &mut Ui, model: &ModelInfo) {
     row_value(ui, "Status", model.status());
+    row_value(ui, "Load state", "LOADED");
     row_value(ui, "Model", &model.path.display().to_string());
     if let Some(config) = &model.config {
         row_value(ui, "Model ID", &config.model_id);
