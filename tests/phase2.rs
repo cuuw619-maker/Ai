@@ -123,8 +123,18 @@ fn deterministic_training_matches_for_same_seed_and_config() {
     a.run(&a_rx, None, &a_events);
     b.run(&b_rx, None, &b_events);
 
-    let a_params: Vec<Vec<f32>> = a.model.parameters().into_iter().map(|p| p.data.clone()).collect();
-    let b_params: Vec<Vec<f32>> = b.model.parameters().into_iter().map(|p| p.data.clone()).collect();
+    let a_params: Vec<Vec<f32>> = a
+        .model
+        .parameters()
+        .into_iter()
+        .map(|p| p.data.clone())
+        .collect();
+    let b_params: Vec<Vec<f32>> = b
+        .model
+        .parameters()
+        .into_iter()
+        .map(|p| p.data.clone())
+        .collect();
     assert_eq!(a_params, b_params);
     assert_eq!(a.optimizer.step_count(), b.optimizer.step_count());
 
