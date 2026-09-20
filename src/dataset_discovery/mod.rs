@@ -135,11 +135,13 @@ pub enum DatasetEvent {
 }
 
 enum DatasetCommand {
-    Search(DatasetSearchFilters),
+    Search { filters: DatasetSearchFilters, auto: bool },
     Download { id: String, allow_large: bool },
     Prepare(String),
     Preview(String),
     UseForTraining(String),
+    Pause,
+    Stop,
     Remove(String),
 }
 
@@ -504,8 +506,26 @@ impl DatasetDiscovery {
 
     pub fn search(&self, filters: DatasetSearchFilters) -> Result<(), String> {
         self.commands
-            .send(DatasetCommand::Search(filters))
+            .send(DatasetCommand::Search { filters, auto: false })
             .map_err(|e| format!("dataset discovery command: {e}"))
+    }
+
+    pub fn auto_discover(&self, filters: DatasetSearchFilters) -> Result<(), String> {
+        self.commands
+            .send(DatasetCommand::Search { filters, auto: true })
+            .map_err(|e| format!("automatic dataset discovery command: {e}"))
+    }
+
+    pub fn pause(&self) -> Result<(), String> {
+        self.commands
+            .send(DatasetCommand::Pause)
+            .map_err(|e| format!("dataset discovery pause command: {e}"))
+    }
+
+    pub fn stop(&self) -> Result<(), String> {
+        self.commands
+            .send(DatasetCommand::Stop)
+            .map_err(|e| format!("dataset discovery stop command: {e}"))
     }
     pub fn download(&self, id: &str, allow_large: bool) -> Result<(), String> {
         self.commands
@@ -555,13 +575,18 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
     for candidate in candidates.values().cloned() {
         let _ = events.send(DatasetEvent::Candidate(candidate));
     }
-    let mut download_queue = VecDeque::<(String, bool)>::new();
+    let mut download_queue = VecDeque::<(String, bool, bool)>::new();
+    let mut paused = false;
+    let mut stopped = false;
 
     loop {
         while let Ok(command) = commands.try_recv() {
             match command {
-                DatasetCommand::Search(filters) => {
+                DatasetCommand::Search { filters, auto } => {
+                    paused = false;
+                    stopped = false;
                     let mut total = 0usize;
+                    let mut discovered_ids = Vec::new();
                     let _ = events.send(DatasetEvent::SearchStarted);
                     for source in &sources {
                         let _ = events.send(DatasetEvent::SourceSearching(source.kind()));
@@ -577,6 +602,7 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
                                         }
                                     }
                                     candidates.insert(item.id.clone(), item.clone());
+                                    discovered_ids.push(item.id.clone());
                                     total += 1;
                                     let _ = events.send(DatasetEvent::Candidate(item));
                                 }
@@ -589,18 +615,46 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
                             }
                         }
                     }
+                    if auto {
+                        let best_id = discovered_ids
+                            .iter()
+                            .filter_map(|id| candidates.get(id))
+                            .filter(|candidate| {
+                                candidate.download_url.is_some()
+                                    && candidate.size_bytes.unwrap_or(u64::MAX)
+                                        <= DEFAULT_MAX_DOWNLOAD_BYTES
+                            })
+                            .max_by(|a, b| {
+                                a.quality_score
+                                    .partial_cmp(&b.quality_score)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                            .map(|candidate| candidate.id.clone());
+
+                        if let Some(id) = best_id {
+                            if let Some(candidate) = candidates.get_mut(&id) {
+                                candidate.state = DatasetState::Queued;
+                                candidate.error = None;
+                                let _ = events.send(DatasetEvent::Candidate(candidate.clone()));
+                                download_queue.push_back((id, false, true));
+                            }
+                        }
+                    }
                     let _ = events.send(DatasetEvent::SearchCompleted(total));
                     persist_candidates(&root, candidates.values());
                 }
+
                 DatasetCommand::Download { id, allow_large } => {
                     if id == "__shutdown__" {
                         return;
                     }
+                    paused = false;
+                    stopped = false;
                     if let Some(candidate) = candidates.get_mut(&id) {
                         candidate.state = DatasetState::Queued;
                         candidate.error = None;
                         let _ = events.send(DatasetEvent::Candidate(candidate.clone()));
-                        download_queue.push_back((id, allow_large));
+                        download_queue.push_back((id, allow_large, false));
                     } else {
                         let _ = events.send(DatasetEvent::Error { id: Some(id), message: "Dataset is not in discovery cache.".into() });
                     }
@@ -649,6 +703,14 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
                         }
                     }
                 }
+                DatasetCommand::Pause => {
+                    paused = true;
+                }
+                DatasetCommand::Stop => {
+                    paused = true;
+                    stopped = true;
+                    download_queue.clear();
+                }
                 DatasetCommand::Remove(id) => {
                     if id == "__shutdown__" {
                         return;
@@ -669,14 +731,38 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
             }
         }
 
-        if let Some((id, allow_large)) = download_queue.pop_front() {
-            if let Some(candidate) = candidates.get_mut(&id) {
-                match download_candidate(&root, candidate.clone(), allow_large, &events) {
-                    Ok(updated) => {
-                        candidates.insert(id.clone(), updated.clone());
-                        let _ = events.send(DatasetEvent::Candidate(updated));
-                        persist_candidates(&root, candidates.values());
-                    }
+        if !paused && !stopped {
+            if let Some((id, allow_large, auto_prepare)) = download_queue.pop_front() {
+                if let Some(candidate) = candidates.get_mut(&id) {
+                    match download_candidate(&root, candidate.clone(), allow_large, &events) {
+                        Ok(updated) => {
+                            candidates.insert(id.clone(), updated.clone());
+                            let _ = events.send(DatasetEvent::Candidate(updated.clone()));
+
+                            if auto_prepare {
+                                match prepare_candidate(&root, &updated, &events) {
+                                    Ok(mut ready) => {
+                                        candidates.insert(id.clone(), ready.clone());
+                                        let _ = events.send(DatasetEvent::Ready(ready.clone()));
+                                        ready.state = DatasetState::UsedInTraining;
+                                        candidates.insert(id.clone(), ready.clone());
+                                        let _ = events.send(DatasetEvent::UsedForTraining(ready));
+                                    }
+                                    Err(error) => {
+                                        let mut failed = updated;
+                                        failed.state = DatasetState::Failed;
+                                        failed.error = Some(error.clone());
+                                        candidates.insert(id.clone(), failed.clone());
+                                        let _ = events.send(DatasetEvent::Candidate(failed));
+                                        let _ = events.send(DatasetEvent::Error {
+                                            id: Some(id.clone()),
+                                            message: error,
+                                        });
+                                    }
+                                }
+                            }
+                            persist_candidates(&root, candidates.values());
+                        }
                     Err(error) => {
                         if error.starts_with("APPROVAL:") {
                             let size = error.trim_start_matches("APPROVAL:").parse::<u64>().unwrap_or(0);
