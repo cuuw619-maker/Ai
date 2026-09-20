@@ -26,13 +26,23 @@ pub struct DatasetReader {
 impl DatasetReader {
     pub fn open(path: &Path, format: DatasetFormat) -> Result<Self, String> {
         let file = File::open(path).map_err(|e| format!("open dataset {}: {e}", path.display()))?;
+        let mut reader = BufReader::new(file);
+        let csv_headers = if format == DatasetFormat::Csv {
+            let mut header = String::new();
+            if reader.read_line(&mut header).map_err(|e| format!("read CSV header: {e}"))? == 0 {
+                return Err("CSV dataset is empty".into());
+            }
+            Some(parse_csv_record(&header).iter().map(|v| v.to_ascii_lowercase()).collect())
+        } else {
+            None
+        };
         Ok(Self {
             path: path.to_path_buf(),
             format,
-            reader: BufReader::new(file),
+            reader,
             next_sample_index: 0,
             max_line_bytes: DEFAULT_MAX_LINE_BYTES,
-            csv_headers: None,
+            csv_headers,
         })
     }
 
@@ -80,10 +90,6 @@ impl DatasetReader {
                 DatasetFormat::Jsonl | DatasetFormat::Json => parse_jsonl(&line)?,
                 DatasetFormat::Csv => self.parse_csv(&line)?,
             };
-            if self.format == DatasetFormat::Csv && self.next_sample_index == 0 && self.csv_headers.is_none() {
-                self.csv_headers = Some(parse_csv_record(&line).iter().map(|v| v.to_ascii_lowercase()).collect());
-                continue;
-            }
             let index = self.next_sample_index;
             self.next_sample_index += 1;
             return Ok(Some(RawSample {
