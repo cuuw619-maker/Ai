@@ -221,6 +221,7 @@ pub struct AppCore {
     pub dataset: Option<DatasetInfo>,
     pub web_status: WebStatus,
     pub web_stats: WebStats,
+    pub web_sources: Vec<crate::web_learning::SourceRecord>,
     pub web: Option<WebLearner>,
     pub training: TrainingSnapshot,
     pub model_stats: ModelStatsSnapshot,
@@ -300,6 +301,7 @@ impl AppCore {
             dataset: None,
             web_status: WebStatus::Stopped,
             web_stats: WebStats::default(),
+            web_sources: Vec::new(),
             web: None,
             training: TrainingSnapshot::default(),
             model_stats: ModelStatsSnapshot::default(),
@@ -536,6 +538,15 @@ impl AppCore {
         }
     }
 
+    pub fn add_web_source(&mut self, url: &str) {
+        match crate::web_learning::SourceRegistry::load(&self.root)
+            .and_then(|mut registry| registry.add_url(url, None, None, None).map(|_| ()))
+        {
+            Ok(()) => self.log_event(format!("Web source added: {url}")),
+            Err(error) => self.last_error = Some(error),
+        }
+    }
+
     pub fn scan_web_now(&mut self) {
         if let Some(web) = &self.web {
             if let Err(error) = web.send(WebCommand::ScanNow) {
@@ -578,6 +589,9 @@ impl AppCore {
                 WebEvent::Offline(error) => {
                     self.web_status = WebStatus::Offline;
                     self.logger.app(format!("Web offline: {error}"));
+                }
+                WebEvent::Sources(sources) => {
+                    self.web_sources = sources;
                 }
             }
         }

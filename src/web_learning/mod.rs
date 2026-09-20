@@ -122,6 +122,7 @@ pub enum WebEvent {
     ArticleAccepted(ArticleRecord),
     Error { source_id: Option<String>, error: String },
     Offline(String),
+    Sources(Vec<SourceRecord>),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -822,6 +823,7 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
     stats.sources = registry.list().len() as u64;
     stats.active_sources = registry.list().iter().filter(|v| v.enabled).count() as u64;
     let _ = event_tx.send(WebEvent::Stats(stats.clone()));
+    let _ = event_tx.send(WebEvent::Sources(registry.list().to_vec()));
 
     let mut status = WebStatus::Stopped;
     let mut paused = true;
@@ -897,10 +899,16 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
                 }
             }
             let persistent = store.stats().unwrap_or_default();
+            stats.current_url = result
+                .articles
+                .last()
+                .map(|article| article.canonical_url.clone())
+                .or(stats.current_url.clone());
             stats.training_queue = persistent.training_queue;
             stats.last_update = Some(now_ms());
             let _ = store.enforce_retention(settings.retention_max_articles);
             let _ = event_tx.send(WebEvent::Stats(stats.clone()));
+            let _ = event_tx.send(WebEvent::Sources(registry.list().to_vec()));
         }
 
         if !paused && pending.is_empty() && active.is_empty() && Instant::now() >= next_scan {

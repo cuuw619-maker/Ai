@@ -10,6 +10,7 @@ use std::time::Duration;
 
 pub struct AiApplication {
     pub core: AppCore,
+    web_source_url: String,
     new_model_name: String,
     new_model_vocab: String,
     new_model_embedding: String,
@@ -52,6 +53,7 @@ impl AiApplication {
             .unwrap_or(263);
         Self {
             core,
+            web_source_url: String::new(),
             new_model_name: "my-model".into(),
             new_model_vocab: default_vocab.to_string(),
             new_model_embedding: "64".into(),
@@ -555,6 +557,20 @@ impl AiApplication {
     fn web_learning(&mut self, ui: &mut Ui) {
         card(ui, |ui| {
             ui.horizontal(|ui| {
+                ui.label("Source URL");
+                ui.text_edit_singleline(&mut self.web_source_url);
+                if ui.button("ADD SOURCE").clicked() {
+                    let url = self.web_source_url.trim().to_string();
+                    if !url.is_empty() {
+                        self.core.add_web_source(&url);
+                        self.web_source_url.clear();
+                    }
+                }
+            });
+        });
+        ui.add_space(8.0);
+        card(ui, |ui| {
+            ui.horizontal(|ui| {
                 status_pill(ui, match self.core.web_status {
                     WebStatus::Running => "RUNNING",
                     WebStatus::Starting => "STARTING",
@@ -629,6 +645,14 @@ impl AiApplication {
         ui.add_space(10.0);
         card(ui, |ui| {
             ui.label(RichText::new("SOURCE ACTIVITY").strong());
+            egui::Grid::new("web-sources").striped(true).num_columns(6).show(ui, |ui| {
+                ui.label("Source"); ui.label("Domain"); ui.label("Priority"); ui.label("Status"); ui.label("Last scan"); ui.label("Errors"); ui.end_row();
+                for source in &self.core.web_sources {
+                    ui.label(&source.id); ui.label(&source.domain); ui.label(format!("{:?}", source.priority));
+                    let status = if source.last_success.is_some() { "READY" } else if source.error_count > 0 { "ERROR" } else { "PENDING" };
+                    ui.label(status); ui.label(source.last_scan.map(|v| v.to_string()).unwrap_or_else(|| "—".into())); ui.label(source.error_count.to_string()); ui.end_row();
+                }
+            });
             row_value(ui, "Current source", self.core.web_stats.current_source.as_deref().unwrap_or("—"));
             row_value(ui, "Current URL", self.core.web_stats.current_url.as_deref().unwrap_or("—"));
             row_value(ui, "Last update", &self.core.web_stats.last_update.map(|v| v.to_string()).unwrap_or_else(|| "—".into()));
