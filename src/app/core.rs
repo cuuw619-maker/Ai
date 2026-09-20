@@ -700,11 +700,14 @@ impl AppCore {
                 let tokenizer = Tokenizer::load(&tokenizer_path)?;
                 let mut engine = InferenceEngine::new(seed);
                 engine.load(&model_path)?;
-                engine.generate_stream(&tokenizer.encode(&prompt), tokenizer.eos_id(), max_tokens, &generation, |token| {
-                    if stop.load(Ordering::Relaxed) {
-                        return;
+                engine.generate_stream_cancelled(&tokenizer.encode(&prompt), tokenizer.eos_id(), max_tokens, &generation, |token, sequence| {
+                    if let Ok(text) = tokenizer.decode(sequence) {
+                        let prompt_len = tokenizer.encode(&prompt).len();
+                        let generated_ids = &sequence[prompt_len.min(sequence.len())..];
+                        let generated = tokenizer.decode(generated_ids).unwrap_or_else(|_| text.clone());
+                        let _ = tx.send(ChatEvent::Token(vec![generated.as_bytes().len() as u32]));
                     }
-                    let _ = tx.send(ChatEvent::Token(vec![token]));
+                    !stop.load(Ordering::Relaxed)
                 })?;
                 tx.send(ChatEvent::Finished(Ok(()))).map_err(|e| e.to_string())?;
                 Ok(())
