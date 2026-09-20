@@ -240,9 +240,9 @@ impl AiApplication {
                 row_value(ui, "Epoch", &self.core.training.epoch.to_string());
                 row_value(ui, "Step", &self.core.training.step.to_string());
                 row_value(ui, "Tokens", &self.core.training.tokens.to_string());
-                row_value(ui, "Current loss", loss_string(self.core.training.loss));
-                row_value(ui, "Average loss", loss_string(self.core.training.avg_loss));
-                row_value(ui, "Best loss", loss_string(self.core.training.best_loss));
+                row_value(ui, "Current loss", &loss_string(self.core.training.loss));
+                row_value(ui, "Average loss", &loss_string(self.core.training.avg_loss));
+                row_value(ui, "Best loss", &loss_string(self.core.training.best_loss));
                 row_value(
                     ui,
                     "Tokens/sec",
@@ -1110,8 +1110,11 @@ fn true_status(training: &super::core::TrainingSnapshot) -> &str {
 
 fn model_detail(model: Option<&ModelInfo>) -> String {
     model
-        .and_then(|m| m.config.as_ref())
-        .map(|c| format!("{} • {} params", c.architecture, m.parameter_count))
+        .and_then(|m| {
+            m.config.as_ref().map(|config| {
+                format!("{} • {} params", config.architecture, m.parameter_count)
+            })
+        })
         .unwrap_or_else(|| "No model".into())
 }
 
