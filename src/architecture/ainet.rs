@@ -317,6 +317,7 @@ pub struct AiNet {
     pub output_w: Parameter,
     pub output_b: Parameter,
     runtime_memory: Vec<Vec<f32>>,
+    last_activations: Vec<Vec<f32>>,
 }
 
 impl AiNet {
@@ -352,6 +353,7 @@ impl AiNet {
         );
         let output_b = Parameter::zeros("output.bias", config.vocab_size);
         let runtime_memory = vec![vec![0.0; config.hidden_dim]; config.layer_count];
+        let last_activations = vec![vec![0.0; config.hidden_dim]; config.layer_count];
         Ok(Self {
             config,
             embedding,
@@ -361,6 +363,7 @@ impl AiNet {
             output_w,
             output_b,
             runtime_memory,
+            last_activations,
         })
     }
 
@@ -482,6 +485,7 @@ impl AiNet {
             let mut x = self.project_input(&embedding)?;
             for (layer, cell) in self.cells.iter().enumerate() {
                 let cache = cell.forward(&x, &memory[layer]);
+                self.last_activations[layer] = cache.output_activation.clone();
                 memory[layer] = cache.new_memory.clone();
                 x = cache
                     .x
@@ -636,6 +640,22 @@ impl AiNet {
             }
         }
         fnv1a64(&bytes)
+    }
+
+    pub fn layer_activation_stats(&self) -> Vec<(f32, f32, f32)> {
+        self.last_activations
+            .iter()
+            .map(|values| {
+                if values.is_empty() {
+                    return (0.0, 0.0, 0.0);
+                }
+                let sum = values.iter().map(|v| *v as f64).sum::<f64>();
+                let mean = sum / values.len() as f64;
+                let min = values.iter().copied().fold(f32::INFINITY, f32::min);
+                let max = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                (mean as f32, min, max)
+            })
+            .collect()
     }
 
     pub fn parameter_names(&self) -> Vec<String> {
