@@ -993,11 +993,7 @@ impl AppCore {
         self.training.loss_count = self.training.loss_count.saturating_add(1);
         self.training.avg_loss =
             Some((self.training.loss_sum / self.training.loss_count as f64) as f32);
-        self.training.best_loss = Some(
-            self.training
-                .best_loss
-                .map_or(loss, |best| best.min(loss)),
-        );
+        self.training.best_loss = Some(self.training.best_loss.map_or(loss, |best| best.min(loss)));
         if loss.is_finite() {
             self.loss_points.push_back((progress.step, loss));
             while self.loss_points.len() > 1200 {
