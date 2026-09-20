@@ -566,8 +566,10 @@ impl AppCore {
         self.config.performance_profile = "LOW-END".into();
         self.config.training.max_cpu_threads = 2;
         self.config.training.sequence_length = self.config.training.sequence_length.min(64).max(8);
-        self.config.training.gradient_accumulation = self.config.training.gradient_accumulation.min(4).max(1);
-        self.config.training.memory_budget_mb = self.config.training.memory_budget_mb.min(2048).max(512);
+        self.config.training.gradient_accumulation =
+            self.config.training.gradient_accumulation.min(4).max(1);
+        self.config.training.memory_budget_mb =
+            self.config.training.memory_budget_mb.min(2048).max(512);
         self.save_config();
         self.log_event("LOW-END profile applied.");
     }
