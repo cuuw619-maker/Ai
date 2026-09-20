@@ -123,11 +123,18 @@ impl Tokenizer {
 
     pub fn validate(&self) -> Result<(), String> {
         let mut ids = HashMap::new();
-        for token in &self.special_tokens {
+        for (index, token) in self.special_tokens.iter().enumerate() {
             if token.id < BYTE_VOCAB_SIZE {
                 return Err(format!(
                     "special token {} overlaps byte vocabulary",
                     token.name
+                ));
+            }
+            let expected_id = BYTE_VOCAB_SIZE + index as u32;
+            if token.id != expected_id {
+                return Err(format!(
+                    "special token {} has id {}, expected {}",
+                    token.name, token.id, expected_id
                 ));
             }
             if ids.insert(token.id, token.name.clone()).is_some() {
