@@ -1,3 +1,4 @@
+pub mod architecture;
 pub mod dataset;
 pub mod error;
 pub mod inference;
