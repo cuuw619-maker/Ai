@@ -608,6 +608,19 @@ impl AiApplication {
 
     fn web_learning(&mut self, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
+            for stage in ["SEARCHING", "DOWNLOADING", "PREPARING", "VALIDATING", "TRAINING"] {
+                let active = self.dd_stage == stage
+                    || (stage == "TRAINING" && self.core.is_trainer_running());
+                let text = if active {
+                    RichText::new(format!("● {stage}")).strong()
+                } else {
+                    RichText::new(stage).small()
+                };
+                ui.label(text);
+            }
+        });
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
             let found = self.dd_results.len();
             let downloaded = self
                 .dd_results
@@ -680,12 +693,21 @@ impl AiApplication {
             });
             ui.add_space(8.0);
             ui.horizontal_wrapped(|ui| {
-                if ui.button("START").clicked() {
+                if ui.button("START WEB LEARNING").clicked() {
+                    self.dd_stage = "SEARCHING".into();
+                    self.core.last_error = None;
                     self.core.start_web_learning();
                     if let Some(manager) = &self.dataset_discovery {
-                        if let Err(error) = manager.auto_discover(self.discover_search()) {
+                        let mut filters = self.discover_search();
+                        filters.topic = "General text".into();
+                        filters.kind = "Any".into();
+                        if let Err(error) = manager.auto_discover(filters) {
                             self.core.last_error = Some(error);
+                            self.dd_stage = "ERROR".into();
                         }
+                    } else {
+                        self.dd_stage = "ERROR".into();
+                        self.core.last_error = Some("Dataset Discovery is unavailable.".into());
                     }
                 }
                 if ui.button("PAUSE WEB").clicked() {
@@ -931,10 +953,62 @@ impl AiApplication {
     }
 
     fn select_discovered_dataset_for_training(&mut self, candidate: &DatasetCandidate) {
-        let Some(path) = candidate.prepared_path.clone() else { self.core.last_error = Some("Dataset is not prepared yet.".into()); return; };
+        let Some(path) = candidate.prepared_path.clone() else {
+            self.dd_stage = "PREPARING".into();
+            self.core.last_error = Some("Automatic Web Learning received an unprepared dataset.".into());
+            return;
+        };
+
+        self.dd_stage = "VALIDATING".into();
         self.core.config.datasets = vec![path.display().to_string()];
-        self.core.dataset = Some(DatasetInfo { path, format: DatasetFormat::Aicorpus, metadata_id: Some(candidate.id.clone()), report: None, error: None });
-        self.core.save_config(); self.core.validate_dataset(); self.core.log_event(format!("Dataset selected for training: {}", candidate.name));
+        self.core.dataset = Some(DatasetInfo {
+            path,
+            format: DatasetFormat::Aicorpus,
+            metadata_id: Some(candidate.id.clone()),
+            report: None,
+            error: None,
+        });
+        self.core.save_config();
+        self.core.validate_dataset();
+
+        let valid = self
+            .core
+            .dataset
+            .as_ref()
+            .and_then(|dataset| dataset.report.as_ref())
+            .is_some_and(|report| report.errors == 0 && report.samples > 0);
+        if !valid {
+            self.dd_stage = "ERROR".into();
+            return;
+        }
+
+        if let Err(error) = self.core.ensure_web_training_prerequisites() {
+            self.dd_stage = "ERROR".into();
+            self.core.last_error = Some(error.clone());
+            self.core.logger.app(format!("Web Learning prerequisite error: {error}"));
+            return;
+        }
+
+        // Revalidate with the actual tokenizer so the UI exposes a real token estimate.
+        self.dd_stage = "VALIDATING".into();
+        self.core.validate_dataset();
+        let valid = self
+            .core
+            .dataset
+            .as_ref()
+            .and_then(|dataset| dataset.report.as_ref())
+            .is_some_and(|report| report.errors == 0 && report.samples > 0);
+        if !valid {
+            self.dd_stage = "ERROR".into();
+            return;
+        }
+
+        self.core.log_event(format!("Dataset selected and validated for training: {}", candidate.name));
+        self.dd_stage = "TRAINING".into();
+        self.core.start_training();
+        if !self.core.is_trainer_running() {
+            self.dd_stage = "ERROR".into();
+        }
     }
     fn data_discovery(&mut self, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
