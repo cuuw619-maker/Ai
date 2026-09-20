@@ -1192,8 +1192,8 @@ fn infer_language(text: &str) -> String {
 fn size_matches(size_bytes: Option<u64>, wanted: &str) -> bool {
     match wanted.to_ascii_lowercase().as_str() {
         "any" => true,
-        "small" => size_bytes.map(|v| v <= 128 * 1024 * 1024).unwrap_or(false),
-        "medium" => size_bytes.map(|v| v > 128 * 1024 * 1024 && v <= 1024 * 1024 * 1024).unwrap_or(false),
+        "small" => size_bytes.map(|v| v <= 128 * 1024 * 1024).unwrap_or(true),
+        "medium" => size_bytes.map(|v| v > 128 * 1024 * 1024 && v <= 1024 * 1024 * 1024).unwrap_or(true),
         "large" => size_bytes.map(|v| v > 1024 * 1024 * 1024).unwrap_or(true),
         _ => true,
     }
