@@ -14,6 +14,8 @@ const VERSION: u32 = 1;
 pub struct CheckpointData {
     pub run_id: String,
     pub timestamp_unix_ms: u64,
+    pub model_architecture: String,
+    pub model_id: String,
     pub model_checksum: u64,
     pub dataset_id: String,
     pub tokenizer_id: String,
@@ -48,6 +50,8 @@ impl Checkpoint {
         let data = CheckpointData {
             run_id: run_id.into(),
             timestamp_unix_ms,
+            model_architecture: model.config.architecture.clone(),
+            model_id: model.config.model_id.clone(),
             model_checksum: model.weights_checksum(),
             dataset_id: dataset_id.into(),
             tokenizer_id: tokenizer_id.into(),
@@ -105,6 +109,8 @@ fn encode(data: &CheckpointData) -> Result<Vec<u8>, String> {
     let mut w = Writer::default();
     w.string(&data.run_id);
     w.u64(data.timestamp_unix_ms);
+    w.string(&data.model_architecture);
+    w.string(&data.model_id);
     w.u64(data.model_checksum);
     w.string(&data.dataset_id);
     w.string(&data.tokenizer_id);
@@ -163,6 +169,8 @@ fn decode_container(bytes: &[u8]) -> Result<CheckpointData, String> {
     let mut r = Reader::new(payload);
     let run_id = r.string()?;
     let timestamp_unix_ms = r.u64()?;
+    let model_architecture = r.string()?;
+    let model_id = r.string()?;
     let model_checksum = r.u64()?;
     let dataset_id = r.string()?;
     let tokenizer_id = r.string()?;
@@ -208,6 +216,8 @@ fn decode_container(bytes: &[u8]) -> Result<CheckpointData, String> {
     Ok(CheckpointData {
         run_id,
         timestamp_unix_ms,
+        model_architecture,
+        model_id,
         model_checksum,
         dataset_id,
         tokenizer_id,
