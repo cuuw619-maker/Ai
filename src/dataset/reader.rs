@@ -53,10 +53,6 @@ impl DatasetReader {
             .map_err(|e| format!("dataset position: {e}"))
     }
 
-    pub fn next_sample_index(&self) -> u64 {
-        self.next_sample_index
-    }
-
     pub fn next_sample(&mut self) -> AiResult<Option<RawSample>> {
         loop {
             let offset = self.current_offset().map_err(AiError::Dataset)?;
@@ -71,33 +67,38 @@ impl DatasetReader {
             {
                 continue;
             }
-        if read > self.max_line_bytes {
-            return Err(AiError::Dataset(format!(
-                "sample {} exceeds max line size {} bytes",
-                self.next_sample_index, self.max_line_bytes
-            )));
-        }
-        let index = self.next_sample_index;
-        self.next_sample_index += 1;
-        let text = match self.format {
-            DatasetFormat::Txt | DatasetFormat::Aicorpus => line.trim_end_matches(&['\r', '\n'][..]).to_owned(),
-            DatasetFormat::Jsonl | DatasetFormat::Json => parse_jsonl(&line)?,
-            DatasetFormat::Csv => self.parse_csv(&line)?,
-        };
-            Ok(Some(RawSample {
+            if read > self.max_line_bytes {
+                return Err(AiError::Dataset(format!(
+                    "sample {} exceeds max line size {} bytes",
+                    self.next_sample_index, self.max_line_bytes
+                )));
+            }
+            let text = match self.format {
+                DatasetFormat::Txt | DatasetFormat::Aicorpus => {
+                    line.trim_end_matches(&['\\r', '\\n'][..]).to_owned()
+                }
+                DatasetFormat::Jsonl | DatasetFormat::Json => parse_jsonl(&line)?,
+                DatasetFormat::Csv => self.parse_csv(&line)?,
+            };
+            if self.format == DatasetFormat::Csv && self.next_sample_index == 0 && self.csv_headers.is_none() {
+                self.csv_headers = Some(parse_csv_record(&line).iter().map(|v| v.to_ascii_lowercase()).collect());
+                continue;
+            }
+            let index = self.next_sample_index;
+            self.next_sample_index += 1;
+            return Ok(Some(RawSample {
                 text,
                 file_offset: offset,
                 sample_index: index,
-            }))
+            }));
         }
     }
 
     fn parse_csv(&mut self, line: &str) -> AiResult<String> {
-        let values = parse_csv_record(line);
         if self.csv_headers.is_none() {
-            self.csv_headers = Some(values.iter().map(|v| v.to_ascii_lowercase()).collect());
-            return self.next_sample()?.map(|s| s.text).ok_or_else(|| AiError::Dataset("CSV contains header only".into()));
+            return Err(AiError::Dataset("CSV header has not been initialized".into()));
         }
+        let values = parse_csv_record(line);
         let headers = self.csv_headers.as_ref().unwrap();
         for key in ["text", "content", "body", "article", "document", "description"] {
             if let Some(index) = headers.iter().position(|v| v == key) {
@@ -106,10 +107,10 @@ impl DatasetReader {
                 }
             }
         }
-        for (a,b) in [("question","answer"),("prompt","response"),("user","assistant")] {
+        for (a, b) in [("question", "answer"), ("prompt", "response"), ("user", "assistant")] {
             if let (Some(ai), Some(bi)) = (headers.iter().position(|v| v == a), headers.iter().position(|v| v == b)) {
                 if let (Some(left), Some(right)) = (values.get(ai), values.get(bi)) {
-                    return Ok(format!("{left}\n{right}"));
+                    return Ok(format!("{left}\\n{right}"));
                 }
             }
         }
