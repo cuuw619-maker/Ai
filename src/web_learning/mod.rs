@@ -1,3 +1,4 @@
+#![allow(clippy::manual_is_ascii_check, clippy::needless_range_loop, unused_assignments)]
 use encoding_rs::Encoding;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ureq::Agent;
 use url::Url;
 
-const CORPUS_MAGIC: &[u8; 8] = b"AICORPUS\0";
+const CORPUS_MAGIC: &[u8; 8] = b"AICORPUS";
 const CORPUS_VERSION: u32 = 1;
 const USER_AGENT: &str = "AiNet-WebLearner/1.0";
 const DEFAULT_MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
@@ -24,8 +25,6 @@ pub enum SourcePriority {
     Normal,
     Low,
 }
-impl Default for SourcePriority { fn default() -> Self { Self::Normal } }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WebStatus { Stopped, Starting, Running, Pausing, Paused, Stopping, Offline, Error }
 
@@ -324,7 +323,7 @@ impl LanguageDetector {
             if ch.is_alphabetic() {
                 letters += 1;
                 let lower = ch.to_ascii_lowercase();
-                if ('a'..='z').contains(&lower) { latin += 1; }
+                if lower.is_ascii_lowercase() { latin += 1; }
                 if ('а'..='я').contains(&lower) || "ёіїєґ".contains(lower) { cyrillic += 1; }
                 if "іїєґ".contains(lower) { uk += 1; }
             }
@@ -605,6 +604,12 @@ impl SourceRegistry {
     }
 }
 
+#[derive(Clone, Debug)]
+struct CacheEntry {
+    etag: Option<String>,
+    last_modified: Option<String>,
+}
+
 pub struct CorpusStore { root: PathBuf, db_path: PathBuf, corpus_path: PathBuf }
 impl CorpusStore {
     pub fn open(root: &Path) -> Result<Self, String> {
@@ -726,7 +731,8 @@ impl CorpusStore {
 
     pub fn recover_inflight(&self) -> Result<usize, String> {
         self.connection()?.execute(
-            "UPDATE training_queue SET state='queued' WHERE state='inflight'"
+            "UPDATE training_queue SET state='queued' WHERE state='inflight'",
+            []
         ).map_err(|e| format!("recover training queue: {e}"))
     }
 
@@ -839,7 +845,6 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
     let _ = event_tx.send(WebEvent::Stats(stats.clone()));
     let _ = event_tx.send(WebEvent::Sources(registry.list().to_vec()));
 
-    let mut status = WebStatus::Stopped;
     let mut paused = true;
     let mut next_scan = Instant::now();
 
@@ -848,20 +853,16 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
             match command {
                 WebCommand::Start | WebCommand::Resume => {
                     paused = false;
-                    status = WebStatus::Running;
-                    let _ = event_tx.send(WebEvent::Status(status));
+                    let _ = event_tx.send(WebEvent::Status(WebStatus::Running));
                     next_scan = Instant::now();
                 }
                 WebCommand::Pause => {
                     paused = true;
-                    status = WebStatus::Paused;
-                    let _ = event_tx.send(WebEvent::Status(status));
+                    let _ = event_tx.send(WebEvent::Status(WebStatus::Paused));
                 }
                 WebCommand::ScanNow => { next_scan = Instant::now(); }
                 WebCommand::Stop => {
-                    paused = true;
-                    status = WebStatus::Stopping;
-                    let _ = event_tx.send(WebEvent::Status(status));
+                    let _ = event_tx.send(WebEvent::Status(WebStatus::Stopping));
                     for handle in active.drain(..) { let _ = handle.join(); }
                     let _ = event_tx.send(WebEvent::Status(WebStatus::Stopped));
                     return;
@@ -893,6 +894,7 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
                     }
                 }
             }
+            stats.current_url = result.articles.last().map(|article| article.canonical_url.clone());
             for article in result.articles {
                 if store.is_duplicate(&article).unwrap_or(true) {
                     stats.duplicates_skipped += 1;
@@ -913,11 +915,6 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
                 }
             }
             let persistent = store.stats().unwrap_or_default();
-            stats.current_url = result
-                .articles
-                .last()
-                .map(|article| article.canonical_url.clone())
-                .or(stats.current_url.clone());
             stats.training_queue = persistent.training_queue;
             stats.last_update = Some(now_ms());
             let _ = store.enforce_retention(settings.retention_max_articles);
@@ -926,7 +923,9 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
         }
 
         if !paused && pending.is_empty() && active.is_empty() && Instant::now() >= next_scan {
-            pending = registry.discover_matching(&settings).into_iter().sort_by_priority().collect::<VecDeque<_>>();
+            let mut sources = registry.discover_matching(&settings);
+            sources.sort_by_priority();
+            pending = sources.into_iter().collect::<VecDeque<_>>();
             next_scan = Instant::now() + Duration::from_secs(settings.scan_interval_secs);
         }
 

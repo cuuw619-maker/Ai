@@ -540,6 +540,34 @@ impl AppCore {
         }
     }
 
+    pub fn pause_all(&mut self) {
+        self.pause_web_learning();
+        if self.is_trainer_running() {
+            self.pause_training();
+        }
+        self.log_event("Pause All requested.");
+    }
+
+    pub fn resume_all(&mut self) {
+        if matches!(self.web_status, WebStatus::Paused | WebStatus::Offline) {
+            if let Some(web) = &self.web {
+                let _ = web.send(WebCommand::Resume);
+            }
+        }
+        if matches!(self.training.state, TrainingStatus::Paused) {
+            self.resume_training();
+        }
+        self.log_event("Resume All requested.");
+    }
+
+    pub fn stop_all(&mut self) {
+        self.stop_web_learning();
+        if self.worker.is_some() {
+            self.stop_training();
+        }
+        self.log_event("Stop All requested.");
+    }
+
     pub fn add_web_source(&mut self, url: &str) {
         match crate::web_learning::SourceRegistry::load(&self.root)
             .and_then(|mut registry| registry.add_url(url, None, None, None).map(|_| ()))
@@ -572,10 +600,20 @@ impl AppCore {
             match event {
                 WebEvent::Status(status) => {
                     self.web_status = status;
+                    self.logger.web(format!("status={status:?}"));
                     self.log_event(format!("Web Learning: {:?}", status));
                 }
                 WebEvent::Stats(stats) => {
-                    self.web_stats = stats;
+                    self.web_stats = stats.clone();
+                    self.logger.web(format!(
+                        "stats sources={} scanned={} accepted={} rejected={} duplicates={} queued_tokens={}",
+                        stats.sources,
+                        stats.pages_scanned,
+                        stats.pages_accepted,
+                        stats.pages_rejected,
+                        stats.duplicates_skipped,
+                        stats.tokens_queued
+                    ));
                 }
                 WebEvent::ArticleAccepted(article) => {
                     self.log_event(format!("Web accepted: {}", article.title));
@@ -585,6 +623,7 @@ impl AppCore {
                     ));
                 }
                 WebEvent::Error { source_id, error } => {
+                    self.logger.web(format!("error source={source_id:?}: {error}"));
                     self.logger.app(format!("Web error source={source_id:?}: {error}"));
                     self.log_event(format!("Web error: {error}"));
                 }
@@ -653,7 +692,7 @@ impl AppCore {
                 return;
             }
         };
-        if tokenizer.vocab_size() > model.config.vocab_size {
+        if tokenizer.vocab_size() != model.config.vocab_size {
             let error = format!(
                 "Web tokenizer vocabulary {} exceeds model vocabulary {}. Create a model with a larger vocabulary.",
                 tokenizer.vocab_size(),
@@ -690,7 +729,7 @@ impl AppCore {
         }
 
         self.dataset = Some(DatasetInfo {
-            path: snapshot,
+            path: snapshot.clone(),
             format: DatasetFormat::Txt,
             metadata_id: Some("web-corpus".into()),
             report: None,
@@ -1246,6 +1285,7 @@ impl AppCore {
                         .as_ref()
                         .and_then(|m| load_model_info(&self.root, &m.path).ok().map(|i| i.checksum));
                     if self.web_training_batch {
+                        self.write_web_run_metadata();
                         match TrainingBridge::finalize_batch(&self.root, true) {
                             Ok(count) => self.logger.training(format!("Web queue finalized: {count} samples")),
                             Err(error) => self.logger.training(format!("Web queue finalize failed: {error}")),
@@ -1268,6 +1308,9 @@ impl AppCore {
                 TrainingEvent::Failed(error) => {
                     self.training.state = TrainingStatus::Failed;
                     if self.web_training_batch {
+                        self.write_web_run_metadata();
+                    }
+                    if self.web_training_batch {
                         let _ = TrainingBridge::finalize_batch(&self.root, false);
                         self.web_training_batch = false;
                     }
@@ -1283,6 +1326,34 @@ impl AppCore {
             self.last_error = Some("Trainer thread exited unexpectedly.".into());
             self.log_event("Trainer thread exited unexpectedly.");
             self.worker = None;
+        }
+    }
+
+    fn write_web_run_metadata(&self) {
+        if self.training.run_id.is_empty() {
+            return;
+        }
+        let dir = self.root.join("runs").join(&self.training.run_id);
+        if fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let payload = serde_json::json!({
+            "run_id": self.training.run_id,
+            "model_checksum_before": self.training.initial_checksum,
+            "model_checksum_after": self.training.final_checksum.or(Some(self.model_stats.checksum)),
+            "steps": self.training.step,
+            "tokens": self.training.tokens,
+            "loss": self.training.loss,
+            "avg_loss": self.training.avg_loss,
+            "web_sources": self.web_stats.sources,
+            "web_articles": self.web_stats.articles_collected,
+            "web_tokens_queued": self.web_stats.tokens_queued,
+            "web_duplicates_skipped": self.web_stats.duplicates_skipped,
+            "replay_ratio_percent": self.config.web.replay_ratio_percent,
+            "model_version": format!("AiNet-v1-run-{:06}", self.training.step.max(1)),
+        });
+        if let Ok(bytes) = serde_json::to_vec_pretty(&payload) {
+            let _ = fs::write(dir.join("web_run.json"), bytes);
         }
     }
 
@@ -1313,6 +1384,7 @@ impl AppCore {
     }
 
     fn apply_model_snapshot(&mut self, snapshot: ModelTrainingSnapshot) {
+        let layer_count = snapshot.layers.len();
         self.model_stats = ModelStatsSnapshot {
             parameter_count: snapshot.parameter_count,
             checksum: snapshot.checksum,
@@ -1345,6 +1417,24 @@ impl AppCore {
                 })
                 .collect(),
         };
+        self.logger.router(format!(
+            "checksum={:016x} parameters={} updated_parameters={} layers={}",
+            snapshot.checksum,
+            snapshot.parameter_count,
+            snapshot.updated_parameters,
+            layer_count
+        ));
+        for layer in &self.model_stats.layers {
+            self.logger.router(format!(
+                "layer={} active_blocks={} skipped_blocks={} active_channels={} skipped_channels={} entropy={:.6}",
+                layer.layer,
+                layer.active_blocks,
+                layer.skipped_blocks,
+                layer.active_channels,
+                layer.skipped_channels,
+                layer.routing_entropy
+            ));
+        }
         if let Some(model) = &mut self.model {
             model.checksum = snapshot.checksum;
         }

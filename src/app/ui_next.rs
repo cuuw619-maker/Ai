@@ -585,15 +585,27 @@ impl AiApplication {
                 ui.label("Public text ingestion → Corpus → Tokenizer → Trainer");
             });
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if ui.button("START").clicked() {
                     self.core.start_web_learning();
                 }
                 if ui.button("PAUSE WEB").clicked() {
                     self.core.pause_web_learning();
                 }
+                if ui.button("PAUSE TRAINING").clicked() {
+                    self.core.pause_training();
+                }
+                if ui.button("PAUSE ALL").clicked() {
+                    self.core.pause_all();
+                }
+                if ui.button("RESUME ALL").clicked() {
+                    self.core.resume_all();
+                }
                 if ui.button("STOP").clicked() {
                     self.core.stop_web_learning();
+                }
+                if ui.button("STOP ALL").clicked() {
+                    self.core.stop_all();
                 }
                 if ui.button("SCAN NOW").clicked() {
                     self.core.scan_web_now();
@@ -636,11 +648,11 @@ impl AiApplication {
 
         ui.add_space(10.0);
         ui.horizontal_wrapped(|ui| {
-            metric_card(ui, "Sources", self.core.web_stats.sources, format!("active {}", self.core.web_stats.active_sources));
-            metric_card(ui, "Pages scanned", self.core.web_stats.pages_scanned, format!("accepted {}", self.core.web_stats.pages_accepted));
-            metric_card(ui, "Pages rejected", self.core.web_stats.pages_rejected, format!("duplicates {}", self.core.web_stats.duplicates_skipped));
-            metric_card(ui, "Articles", self.core.web_stats.articles_collected, "quality-filtered".to_string());
-            metric_card(ui, "Tokens queued", self.core.web_stats.tokens_queued, format!("queue items {}", self.core.web_stats.training_queue));
+            metric_card(ui, "Sources", self.core.web_stats.sources.to_string(), format!("active {}", self.core.web_stats.active_sources));
+            metric_card(ui, "Pages scanned", self.core.web_stats.pages_scanned.to_string(), format!("accepted {}", self.core.web_stats.pages_accepted));
+            metric_card(ui, "Pages rejected", self.core.web_stats.pages_rejected.to_string(), format!("duplicates {}", self.core.web_stats.duplicates_skipped));
+            metric_card(ui, "Articles", self.core.web_stats.articles_collected.to_string(), "quality-filtered".to_string());
+            metric_card(ui, "Tokens queued", self.core.web_stats.tokens_queued.to_string(), format!("queue items {}", self.core.web_stats.training_queue));
         });
 
         ui.add_space(10.0);
@@ -929,7 +941,14 @@ impl AiApplication {
 
     fn logs(&mut self, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
-            for name in ["APP LOG", "TRAINING LOG", "INFERENCE LOG", "CRASH LOG"] {
+            for name in [
+                "APP LOG",
+                "TRAINING LOG",
+                "INFERENCE LOG",
+                "WEB LOG",
+                "ROUTER LOG",
+                "CRASH LOG",
+            ] {
                 if ui
                     .selectable_label(self.selected_log == name, name)
                     .clicked()
@@ -1513,6 +1532,8 @@ impl AiApplication {
         let file = match self.selected_log.as_str() {
             "TRAINING LOG" => "training.log",
             "INFERENCE LOG" => "inference.log",
+            "WEB LOG" => "web.log",
+            "ROUTER LOG" => "router.log",
             "CRASH LOG" => "crash.log",
             _ => "app.log",
         };
@@ -1620,14 +1641,18 @@ impl AiApplication {
                         }
                     }
                     3 => {
-                        ui.label("4 / 5  ADD DATASET");
-                        if ui.button("OPEN DATASET").clicked() {
-                            self.core.command_page(AppPage::Dataset);
+                        ui.label("4 / 5  WEB LEARNING");
+                        ui.label("No manual dataset is required for the default path.");
+                        if ui.button("OPEN WEB LEARNING").clicked() {
+                            self.core.command_page(AppPage::WebLearning);
                         }
                     }
                     _ => {
-                        ui.label("5 / 5  START TRAINING");
-                        ui.label("Validate the dataset, then start TRAIN.");
+                        ui.label("5 / 5  START AUTONOMOUS LEARNING");
+                        ui.label("Create the random model, then start Web Learning.");
+                        if ui.button("START WEB LEARNING").clicked() {
+                            self.core.command_page(AppPage::WebLearning);
+                        }
                     }
                 }
                 ui.add_space(10.0);
@@ -1744,22 +1769,6 @@ impl eframe::App for AiApplication {
             self.core.config.ui_update_ms.clamp(250, 1000)
         };
         ctx.request_repaint_after(Duration::from_millis(repaint));
-    }
-}
-
-fn page_title(page: AppPage) -> &'static str {
-    match page {
-        AppPage::Home => "Home",
-        AppPage::Chat => "Chat",
-        AppPage::Train => "Training",
-        AppPage::Model => "Model",
-        AppPage::Dataset => "Dataset",
-        AppPage::Memory => "Memory",
-        AppPage::Evaluation => "Evaluation",
-        AppPage::Logs => "Logs",
-        AppPage::Settings => "Settings",
-        AppPage::System => "System & Diagnostics",
-        AppPage::WebLearning => "Web Learning",
     }
 }
 
