@@ -36,7 +36,7 @@ pub enum AppPage {
 }
 
 impl AppPage {
-    pub const ALL: [AppPage; 10] = [
+    pub const ALL: [AppPage; 11] = [
         Self::Home,
         Self::Chat,
         Self::Train,
