@@ -3,6 +3,35 @@ use crate::neural::Parameter;
 use std::fs;
 use std::path::Path;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ModelMemoryReport {
+    pub embedding_bytes: usize,
+    pub projection_bytes: usize,
+    pub cell_weights_bytes: usize,
+    pub output_weights_bytes: usize,
+    pub gradients_bytes: usize,
+    pub optimizer_m_bytes: usize,
+    pub optimizer_v_bytes: usize,
+    pub bptt_cache_bytes: usize,
+    pub hidden_history_bytes: usize,
+    pub temporary_bytes: usize,
+}
+
+impl ModelMemoryReport {
+    pub fn total_bytes(&self) -> usize {
+        self.embedding_bytes
+            + self.projection_bytes
+            + self.cell_weights_bytes
+            + self.output_weights_bytes
+            + self.gradients_bytes
+            + self.optimizer_m_bytes
+            + self.optimizer_v_bytes
+            + self.bptt_cache_bytes
+            + self.hidden_history_bytes
+            + self.temporary_bytes
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelConfig {
     pub architecture: String,
@@ -614,10 +643,8 @@ impl AiNet {
         }
     }
 
-    pub fn estimated_training_bytes(&self, sequence_length: usize) -> usize {
+    pub fn memory_report(&self, sequence_length: usize) -> ModelMemoryReport {
         let parameter_bytes = self.parameter_count() * std::mem::size_of::<f32>();
-        let gradient_bytes = parameter_bytes;
-        let optimizer_bytes = parameter_bytes * 2;
         let bptt_cache_bytes = sequence_length
             * self.config.layer_count
             * self.config.hidden_dim
@@ -625,7 +652,31 @@ impl AiNet {
             * std::mem::size_of::<f32>();
         let hidden_history_bytes =
             sequence_length * self.config.hidden_dim * std::mem::size_of::<f32>();
-        parameter_bytes + gradient_bytes + optimizer_bytes + bptt_cache_bytes + hidden_history_bytes
+        ModelMemoryReport {
+            embedding_bytes: self.embedding.len() * std::mem::size_of::<f32>(),
+            projection_bytes: self.input_projection_w.as_ref().map_or(0, Parameter::len)
+                * std::mem::size_of::<f32>()
+                + self.input_projection_b.as_ref().map_or(0, Parameter::len)
+                    * std::mem::size_of::<f32>(),
+            cell_weights_bytes: self
+                .cells
+                .iter()
+                .map(AiCell::parameter_count)
+                .sum::<usize>()
+                * std::mem::size_of::<f32>(),
+            output_weights_bytes: (self.output_w.len() + self.output_b.len())
+                * std::mem::size_of::<f32>(),
+            gradients_bytes: parameter_bytes,
+            optimizer_m_bytes: parameter_bytes,
+            optimizer_v_bytes: parameter_bytes,
+            bptt_cache_bytes,
+            hidden_history_bytes,
+            temporary_bytes: hidden_history_bytes,
+        }
+    }
+
+    pub fn estimated_training_bytes(&self, sequence_length: usize) -> usize {
+        self.memory_report(sequence_length).total_bytes()
     }
 
     fn project_input(&self, embedding: &[f32]) -> Result<Vec<f32>, String> {
