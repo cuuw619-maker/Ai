@@ -954,7 +954,10 @@ impl AiNet {
             }
             let dtype = ParameterDType::from_u8(r.u8()?)?;
             if dtype != ParameterDType::F32 {
-                return Err(format!("parameter dtype {:?} is not implemented yet", dtype));
+                return Err(format!(
+                    "parameter dtype {:?} is not implemented yet",
+                    dtype
+                ));
             }
             let len = r.u64()? as usize;
             if len != expected_data.len() {
