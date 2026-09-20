@@ -365,7 +365,7 @@ impl AppCore {
             return;
         };
         let path = PathBuf::from(path_string);
-        match load_model_info(&path) {
+        match load_model_info(&self.root, &path) {
             Ok(info) => {
                 let mut info = info;
                 info.trained = self
@@ -378,7 +378,7 @@ impl AppCore {
             }
             Err(error) => {
                 let previous = previous_path(&path);
-                match load_model_info(&previous) {
+                match load_model_info(&self.root, &previous) {
                     Ok(mut info) => {
                         info.loaded_from_previous = true;
                         self.model = Some(info);
@@ -669,7 +669,7 @@ impl AppCore {
                 return;
             }
         };
-        let mut worker = TrainingWorker::spawn(trainer, Some(self.root.join("training.command")));
+        let worker = TrainingWorker::spawn(trainer, Some(self.root.join("training.command")));
         if let Err(e) = worker.send(TrainingCommand::Start) {
             self.last_error = Some(e);
             return;
@@ -762,7 +762,7 @@ impl AppCore {
                 return;
             }
         };
-        let mut worker = TrainingWorker::spawn(trainer, Some(self.root.join("training.command")));
+        let worker = TrainingWorker::spawn(trainer, Some(self.root.join("training.command")));
         if let Err(e) = worker.send(TrainingCommand::Resume) {
             self.last_error = Some(e);
             return;
@@ -1243,17 +1243,20 @@ impl Drop for AppCore {
     }
 }
 
-fn load_model_info(path: &Path) -> Result<ModelInfo, String> {
+fn load_model_info(root: &Path, path: &Path) -> Result<ModelInfo, String> {
     let model = AiNet::load(path)?;
     let file_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-    Ok(ModelInfo {
+    let mut info = ModelInfo {
         path: path.to_path_buf(),
         parameter_count: model.parameter_count(),
         checksum: model.weights_checksum(),
         config: Some(model.config.clone()),
         file_size,
+        trained: false,
         loaded_from_previous: false,
-    })
+    };
+    info.trained = model_training_completed(root, &info);
+    Ok(info)
 }
 
 fn model_training_completed(root: &Path, info: &ModelInfo) -> bool {
@@ -1264,10 +1267,23 @@ fn model_training_completed(root: &Path, info: &ModelInfo) -> bool {
     let Ok(state) = serde_json::from_str::<crate::training::TrainingState>(&content) else {
         return false;
     };
-    state.status == TrainingStatus::Completed
-        && (info.config.as_ref().map(|config| config.model_id.as_str())
-            == Some(state.model_id.as_str())
-            || state.model_id.is_empty())
+    if state.status != TrainingStatus::Completed {
+        return false;
+    }
+    let metadata_path = root.join("runs").join(&state.run_id).join("metadata.json");
+    let Ok(metadata_text) = fs::read_to_string(metadata_path) else {
+        return true;
+    };
+    let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&metadata_text) else {
+        return true;
+    };
+    match (
+        info.config.as_ref().map(|config| config.model_id.as_str()),
+        metadata.get("model_id").and_then(serde_json::Value::as_str),
+    ) {
+        (Some(current), Some(expected)) => current == expected,
+        _ => true,
+    }
 }
 
 fn previous_path(path: &Path) -> PathBuf {

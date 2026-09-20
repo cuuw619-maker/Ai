@@ -148,7 +148,7 @@ impl InferenceEngine {
 
         let mut result = prompt.to_vec();
         for _ in 0..max_new_tokens {
-            let next = sample(&logits, config, &mut self.rng) as u32;
+            let next = sample(&logits, config, &mut self.rng)? as u32;
             result.push(next);
             if !on_token(next, &result) {
                 break;

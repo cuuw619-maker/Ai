@@ -660,7 +660,9 @@ impl AiApplication {
                 }
             });
         } else {
-            card(ui, |ui| ui.label("No dataset selected."));
+            card(ui, |ui| {
+                ui.label("No dataset selected.");
+            });
         }
 
         self.update_tokenizer_cache();
@@ -1153,9 +1155,9 @@ impl AiApplication {
 
     fn send_chat(&mut self) {
         let config = GenerationConfig {
-            temperature: self.temperature.parse().unwrap_or(0.8).clamp(0.01, 10.0),
+            temperature: self.temperature.parse::<f32>().unwrap_or(0.8).clamp(0.01, 10.0),
             top_k: self.top_k.parse().unwrap_or(40).max(1),
-            top_p: self.top_p.parse().unwrap_or(0.9).clamp(0.01, 1.0),
+            top_p: self.top_p.parse::<f32>().unwrap_or(0.9).clamp(0.01, 1.0),
             greedy: self.deterministic,
         };
         let max_tokens = self
@@ -1418,7 +1420,9 @@ impl AiApplication {
                             AppCore::format_mb(self.core.resources.ram_available_bytes)
                         ));
                     }
-                    1 => ui.label("2 / 5  STORAGE SETUP — data directory is ready."),
+                    1 => {
+                        ui.label("2 / 5  STORAGE SETUP — data directory is ready.");
+                    }
                     2 => {
                         ui.label("3 / 5  CREATE MODEL");
                         if ui.button("OPEN MODEL").clicked() {
@@ -1455,7 +1459,7 @@ impl AiApplication {
     }
 
     fn self_test_window(&mut self, ctx: &egui::Context) {
-        let Some(results) = &self.core.self_test_result else {
+        let Some(results) = self.core.self_test_result.clone() else {
             return;
         };
         egui::Window::new("Self Test")
@@ -1653,6 +1657,83 @@ fn empty_dash(value: &str) -> &str {
     }
 }
 
+fn show_model_info(ui: &mut Ui, model: &ModelInfo, status: &str) {
+    let name = model
+        .config
+        .as_ref()
+        .map(|c| c.model_id.as_str())
+        .unwrap_or("unknown");
+    row_value(ui, "Name", name);
+    row_value(
+        ui,
+        "Architecture",
+        model
+            .config
+            .as_ref()
+            .map(|c| c.architecture.as_str())
+            .unwrap_or("unknown"),
+    );
+    row_value(ui, "Status", status);
+    row_value(ui, "Parameters", &model.parameter_count.to_string());
+    row_value(
+        ui,
+        "Embedding",
+        &model
+            .config
+            .as_ref()
+            .map(|c| c.embedding_dim.to_string())
+            .unwrap_or_else(|| "—".into()),
+    );
+    row_value(
+        ui,
+        "Hidden",
+        &model
+            .config
+            .as_ref()
+            .map(|c| c.hidden_dim.to_string())
+            .unwrap_or_else(|| "—".into()),
+    );
+    row_value(
+        ui,
+        "Layers",
+        &model
+            .config
+            .as_ref()
+            .map(|c| c.layer_count.to_string())
+            .unwrap_or_else(|| "—".into()),
+    );
+    row_value(
+        ui,
+        "Vocabulary",
+        &model
+            .config
+            .as_ref()
+            .map(|c| c.vocab_size.to_string())
+            .unwrap_or_else(|| "—".into()),
+    );
+    row_value(
+        ui,
+        "Sequence",
+        &model
+            .config
+            .as_ref()
+            .map(|c| c.sequence_length.to_string())
+            .unwrap_or_else(|| "—".into()),
+    );
+    row_value(
+        ui,
+        "Seed",
+        &model
+            .config
+            .as_ref()
+            .map(|c| c.seed.to_string())
+            .unwrap_or_else(|| "—".into()),
+    );
+    row_value(ui, "File size", &AppCore::format_mb(model.file_size));
+    row_value(ui, "Checksum", &format!("{:016x}", model.checksum));
+    row_value(ui, "Loaded from previous", if model.loaded_from_previous { "YES" } else { "NO" });
+}
+
 fn model_summary(model: Option<&ModelInfo>) -> String {
     model
         .and_then(|m| {
@@ -1765,7 +1846,7 @@ fn draw_loss_graph(ui: &mut Ui, points: &VecDeque<(u64, f32)>) {
     painter.rect_stroke(
         rect,
         7.0,
-        Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+        Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
         StrokeKind::Outside,
     );
 
@@ -1808,7 +1889,7 @@ fn draw_loss_graph(ui: &mut Ui, points: &VecDeque<(u64, f32)>) {
         if let Some(previous) = previous {
             painter.line_segment(
                 [previous, current],
-                Stroke::new(2.0, Color32::from_rgb(120, 180, 255)),
+                Stroke::new(2.0_f32, Color32::from_rgb(120, 180, 255)),
             );
         }
         previous = Some(current);
@@ -1873,7 +1954,7 @@ fn draw_neural_activity(ui: &mut Ui, layers: &[super::core::LayerStats]) {
         painter.rect_stroke(
             rect,
             5.0,
-            Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+            Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
             StrokeKind::Outside,
         );
 

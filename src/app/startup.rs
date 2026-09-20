@@ -1,4 +1,4 @@
-use eframe::egui::{self, Align, Align2, Layout, RichText};
+use eframe::egui::{self, Align, Layout, RichText};
 use std::path::{Path, PathBuf};
 
 pub fn show_startup_error(details: &str, log_path: &Path) {

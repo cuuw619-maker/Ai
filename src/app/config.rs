@@ -86,7 +86,7 @@ impl AppConfig {
         }
         let content = match fs::read_to_string(&path) {
             Ok(v) => v,
-            Err(e) => {
+            Err(_e) => {
                 preserve_broken(&path)?;
                 let value = Self::default();
                 value.save(root)?;
@@ -95,7 +95,7 @@ impl AppConfig {
         };
         match toml::from_str::<Self>(&content) {
             Ok(value) => Ok((value, false)),
-            Err(e) => {
+            Err(_e) => {
                 preserve_broken(&path)?;
                 let value = Self::default();
                 value.save(root)?;

@@ -383,6 +383,7 @@ impl Trainer {
                             &mut accumulated_loss,
                             events,
                             started,
+                            &memory,
                         );
                     }
                     if sequences_this_epoch == 0 {
@@ -498,6 +499,7 @@ impl Trainer {
                     &mut accumulated_loss,
                     events,
                     started,
+                    &memory,
                 );
             }
 
@@ -554,6 +556,7 @@ impl Trainer {
         accumulated_loss: &mut f64,
         events: &Sender<TrainingEvent>,
         started: u64,
+        memory: &[Vec<f32>],
     ) {
         if *accumulation_count == 0 {
             return;
