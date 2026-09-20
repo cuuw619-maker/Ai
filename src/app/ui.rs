@@ -950,9 +950,21 @@ impl AiApplication {
                     &self.core.config.training.sequence_length.to_string(),
                 );
                 row_value(ui, "Batch", "1");
-                row_value(ui, "Gradient accumulation", &self.core.config.training.gradient_accumulation.to_string());
-                row_value(ui, "Threads", &self.core.config.training.max_cpu_threads.to_string());
-                row_value(ui, "Learning rate", &format!("{:.6}", self.core.config.training.learning_rate));
+                row_value(
+                    ui,
+                    "Gradient accumulation",
+                    &self.core.config.training.gradient_accumulation.to_string(),
+                );
+                row_value(
+                    ui,
+                    "Threads",
+                    &self.core.config.training.max_cpu_threads.to_string(),
+                );
+                row_value(
+                    ui,
+                    "Learning rate",
+                    &format!("{:.6}", self.core.config.training.learning_rate),
+                );
                 row_value(ui, "Epochs", &self.core.config.training.epochs.to_string());
 
                 let memory_warning = estimated_bytes > self.core.resources.ram_available_bytes
