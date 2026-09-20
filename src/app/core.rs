@@ -966,8 +966,7 @@ impl AppCore {
                     self.training.final_checksum = self
                         .model
                         .as_ref()
-                        .map(|m| load_model_info(&self.root, &m.path).ok().map(|i| i.checksum))
-                        .flatten();
+                        .and_then(|m| load_model_info(&self.root, &m.path).ok().map(|i| i.checksum));
                     self.log_event("Training completed.");
                     self.logger.training("Training completed");
                     self.worker = None;
