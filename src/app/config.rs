@@ -63,7 +63,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            version: 2,
+            version: 1,
             ui_language: "English".into(),
             ai_languages: vec!["English".into()],
             web: crate::web_learning::WebSettings::default(),
