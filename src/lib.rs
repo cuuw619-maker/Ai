@@ -8,5 +8,6 @@ pub mod neural;
 pub mod optimizer;
 pub mod tokenizer;
 pub mod training;
+pub mod web_learning;
 
 pub use error::{AiError, AiResult};
