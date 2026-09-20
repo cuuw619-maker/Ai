@@ -524,13 +524,28 @@ impl AiNet {
         if let Some(p) = &mut self.input_projection_b {
             result.push(p);
         }
+
         for cell in &mut self.cells {
-            for p in cell.parameters_mut() {
-                result.push(p);
-            }
+            result.push(&mut cell.w_keep);
+            result.push(&mut cell.u_keep);
+            result.push(&mut cell.b_keep);
+            result.push(&mut cell.w_write);
+            result.push(&mut cell.u_write);
+            result.push(&mut cell.b_write);
+            result.push(&mut cell.w_candidate);
+            result.push(&mut cell.u_candidate);
+            result.push(&mut cell.b_candidate);
+            result.push(&mut cell.w_out);
+            result.push(&mut cell.b_out);
         }
+
         result.push(&mut self.output_w);
         result.push(&mut self.output_b);
+
+        for cell in &mut self.cells {
+            result.push(&mut cell.router_w);
+            result.push(&mut cell.router_b);
+        }
         result
     }
 
