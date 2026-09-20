@@ -1012,7 +1012,7 @@ impl AiNet {
             return Err("trailing bytes in .aimodel".into());
         }
         let mut params = model.parameters_mut();
-        for (param, (_, data)) in params.iter_mut().zip(expected.into_iter()) {
+        for (param, (_, data)) in params.iter_mut().zip(expected) {
             param.data.copy_from_slice(&data);
             param.grad.fill(0.0);
         }
