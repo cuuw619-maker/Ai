@@ -1,6 +1,7 @@
 use super::core::{AppCore, AppPage, ModelInfo};
 use crate::inference::GenerationConfig;
 use crate::training::TrainingStatus;
+use crate::web_learning::WebStatus;
 use eframe::egui::{
     self, Align, Align2, Color32, FontId, Layout, RichText, Stroke, StrokeKind, TextStyle, Ui, Vec2,
 };
@@ -43,10 +44,16 @@ impl AiApplication {
         }
 
         let selected_log = "APP LOG".to_string();
+        let default_vocab = core
+            .tokenizer_path
+            .as_ref()
+            .and_then(|path| crate::tokenizer::Tokenizer::load(path).ok())
+            .map(|tokenizer| tokenizer.vocab_size())
+            .unwrap_or(263);
         Self {
             core,
             new_model_name: "my-model".into(),
-            new_model_vocab: "4096".into(),
+            new_model_vocab: default_vocab.to_string(),
             new_model_embedding: "64".into(),
             new_model_hidden: "64".into(),
             new_model_layers: "2".into(),
@@ -523,6 +530,97 @@ impl AiApplication {
                 });
         });
     }
+
+    fn web_learning(&mut self, ui: &mut Ui) {
+        card(ui, |ui| {
+            ui.horizontal(|ui| {
+                status_pill(ui, match self.core.web_status {
+                    WebStatus::Running => "RUNNING",
+                    WebStatus::Starting => "STARTING",
+                    WebStatus::Pausing => "PAUSING",
+                    WebStatus::Paused => "PAUSED",
+                    WebStatus::Stopping => "STOPPING",
+                    WebStatus::Offline => "OFFLINE",
+                    WebStatus::Error => "ERROR",
+                    WebStatus::Stopped => "STOPPED",
+                });
+                ui.label("Public text ingestion → Corpus → Tokenizer → Trainer");
+            });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("START").clicked() {
+                    self.core.start_web_learning();
+                }
+                if ui.button("PAUSE WEB").clicked() {
+                    self.core.pause_web_learning();
+                }
+                if ui.button("STOP").clicked() {
+                    self.core.stop_web_learning();
+                }
+                if ui.button("SCAN NOW").clicked() {
+                    self.core.scan_web_now();
+                }
+            });
+            ui.checkbox(&mut self.core.config.web.autonomous, "AUTONOMOUS LEARNING");
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label("Data languages:");
+                for language in ["English", "Russian", "Ukrainian", "All"] {
+                    let enabled = self.core.config.web.languages.iter().any(|v| v.eq_ignore_ascii_case(language));
+                    if ui.selectable_label(enabled, language).clicked() {
+                        if language == "All" {
+                            self.core.config.web.languages = vec!["All".into()];
+                        } else {
+                            self.core.config.web.languages.retain(|v| !v.eq_ignore_ascii_case("All"));
+                            if enabled && self.core.config.web.languages.len() > 1 {
+                                self.core.config.web.languages.retain(|v| !v.eq_ignore_ascii_case(language));
+                            } else if !enabled {
+                                self.core.config.web.languages.push(language.into());
+                            }
+                            if self.core.config.web.languages.is_empty() {
+                                self.core.config.web.languages.push("English".into());
+                            }
+                        }
+                        self.core.save_config();
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Freshness:");
+                for (label, hours) in [("1h", 1u64), ("6h", 6), ("1d", 24), ("1w", 168), ("All", 0)] {
+                    if ui.selectable_label(self.core.config.web.freshness_hours == hours, label).clicked() {
+                        self.core.config.web.freshness_hours = hours;
+                        self.core.save_config();
+                    }
+                }
+            });
+        });
+
+        ui.add_space(10.0);
+        ui.horizontal_wrapped(|ui| {
+            metric_card(ui, "Sources", self.core.web_stats.sources, format!("active {}", self.core.web_stats.active_sources));
+            metric_card(ui, "Pages scanned", self.core.web_stats.pages_scanned, format!("accepted {}", self.core.web_stats.pages_accepted));
+            metric_card(ui, "Pages rejected", self.core.web_stats.pages_rejected, format!("duplicates {}", self.core.web_stats.duplicates_skipped));
+            metric_card(ui, "Articles", self.core.web_stats.articles_collected, "quality-filtered".to_string());
+            metric_card(ui, "Tokens queued", self.core.web_stats.tokens_queued, format!("queue items {}", self.core.web_stats.training_queue));
+        });
+
+        ui.add_space(10.0);
+        card(ui, |ui| {
+            ui.label(RichText::new("SOURCE ACTIVITY").strong());
+            row_value(ui, "Current source", self.core.web_stats.current_source.as_deref().unwrap_or("—"));
+            row_value(ui, "Current URL", self.core.web_stats.current_url.as_deref().unwrap_or("—"));
+            row_value(ui, "Last update", &self.core.web_stats.last_update.map(|v| v.to_string()).unwrap_or_else(|| "—".into()));
+            row_value(ui, "Registry", &self.core.root.join("web_learning/sources.json").display().to_string());
+            row_value(ui, "Corpus", &self.core.root.join("web_corpus/web.aicorpus").display().to_string());
+            row_value(ui, "SQLite metadata", &self.core.root.join("web_learning/web.sqlite").display().to_string());
+        });
+
+        if let Some(error) = self.core.last_error.as_deref() {
+            error_card(ui, error);
+        }
+    }
+
 
     fn model(&mut self, ui: &mut Ui) {
         if let Some(model) = self.core.model.clone() {
@@ -1513,6 +1611,7 @@ impl eframe::App for AiApplication {
                     AppPage::Logs => self.logs(ui),
                     AppPage::Settings => self.settings(ui),
                     AppPage::System => self.system(ui),
+                    AppPage::WebLearning => self.web_learning(ui),
                 });
         });
 
@@ -1567,6 +1666,7 @@ fn page_title(page: AppPage) -> &'static str {
         AppPage::Logs => "Logs",
         AppPage::Settings => "Settings",
         AppPage::System => "System & Diagnostics",
+        AppPage::WebLearning => "Web Learning",
     }
 }
 

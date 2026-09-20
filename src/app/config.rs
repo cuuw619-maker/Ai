@@ -38,6 +38,12 @@ impl Default for TrainingUiConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppConfig {
     pub version: u32,
+    #[serde(default = "default_ui_language")]
+    pub ui_language: String,
+    #[serde(default = "default_ai_languages")]
+    pub ai_languages: Vec<String>,
+    #[serde(default)]
+    pub web: crate::web_learning::WebSettings,
     pub first_start: bool,
     pub selected_page: String,
     pub model_path: Option<String>,
@@ -57,7 +63,10 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
+            ui_language: "English".into(),
+            ai_languages: vec!["English".into()],
+            web: crate::web_learning::WebSettings::default(),
             first_start: true,
             selected_page: "Home".into(),
             model_path: None,
@@ -131,3 +140,7 @@ fn preserve_broken(path: &Path) -> Result<(), String> {
     }
     fs::rename(path, target).map_err(|e| format!("preserve broken config: {e}"))
 }
+
+fn default_ui_language() -> String { "English".into() }
+
+fn default_ai_languages() -> Vec<String> { vec!["English".into()] }

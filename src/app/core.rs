@@ -6,6 +6,7 @@ use crate::dataset::{dataset_metadata, validate, DatasetFormat, ValidationReport
 use crate::inference::{GenerationConfig, InferenceEngine};
 use crate::neural::Tensor;
 use crate::tokenizer::{Tokenizer, TokenizerTrainer, TokenizerTrainerConfig};
+use crate::web_learning::{TrainingBridge, WebCommand, WebEvent, WebLearner, WebSettings, WebStats, WebStatus};
 use crate::training::{
     Checkpoint, ModelTrainingSnapshot, Trainer, TrainingCommand, TrainingConfig, TrainingEvent,
     TrainingProgress, TrainingStatus, TrainingWorker,
@@ -31,6 +32,7 @@ pub enum AppPage {
     Logs,
     Settings,
     System,
+    WebLearning,
 }
 
 impl AppPage {
@@ -45,6 +47,7 @@ impl AppPage {
         Self::Logs,
         Self::Settings,
         Self::System,
+        Self::WebLearning,
     ];
 
     pub fn name(self) -> &'static str {
@@ -59,6 +62,7 @@ impl AppPage {
             Self::Logs => "LOGS",
             Self::Settings => "SETTINGS",
             Self::System => "SYSTEM",
+            Self::WebLearning => "WEB LEARNING",
         }
     }
 }
@@ -210,6 +214,9 @@ pub struct AppCore {
     pub model: Option<ModelInfo>,
     pub tokenizer_path: Option<PathBuf>,
     pub dataset: Option<DatasetInfo>,
+    pub web_status: WebStatus,
+    pub web_stats: WebStats,
+    pub web: Option<WebLearner>,
     pub training: TrainingSnapshot,
     pub model_stats: ModelStatsSnapshot,
     pub loss_points: VecDeque<(u64, f32)>,
@@ -286,6 +293,9 @@ impl AppCore {
             model: None,
             tokenizer_path: None,
             dataset: None,
+            web_status: WebStatus::Stopped,
+            web_stats: WebStats::default(),
+            web: None,
             training: TrainingSnapshot::default(),
             model_stats: ModelStatsSnapshot::default(),
             loss_points: VecDeque::new(),
@@ -317,6 +327,9 @@ impl AppCore {
             core.refresh_model();
         }
         core.refresh_tokenizer();
+        if !core.safe_mode && core.tokenizer_path.is_none() {
+            core.ensure_default_tokenizer();
+        }
         core.refresh_dataset();
         if !core.safe_mode {
             core.detect_training_recovery();
@@ -326,8 +339,14 @@ impl AppCore {
     }
 
     pub fn command_page(&mut self, page: AppPage) {
+        let was_chat = self.page == AppPage::Chat;
         self.page = page;
         self.config.selected_page = page.name().to_string().to_ascii_lowercase();
+        if page == AppPage::Chat && !was_chat && self.is_trainer_running() {
+            self.pause_training();
+        } else if was_chat && page != AppPage::Chat && self.config.web.autonomous && self.training.state == TrainingStatus::Paused {
+            self.resume_training();
+        }
     }
 
     pub fn is_trainer_running(&self) -> bool {
@@ -345,6 +364,8 @@ impl AppCore {
         self.refresh_resources();
         self.poll_worker();
         self.poll_tokenizer_job();
+        self.poll_web();
+        self.drive_autonomous_training();
         self.poll_chat();
         self.update_crash_context();
         if self.last_resource_poll.elapsed() > Duration::from_secs(2) && self.model.is_none() {
@@ -431,6 +452,230 @@ impl AppCore {
             report: None,
             error: None,
         });
+    }
+
+    pub fn ensure_default_tokenizer(&mut self) {
+        if self.tokenizer_path.is_some() {
+            return;
+        }
+        let path = self.root.join("tokenizer").join("tokenizer.aitok");
+        if let Err(error) = fs::create_dir_all(path.parent().unwrap_or(&self.root))
+            .and_then(|_| Tokenizer::new_default().save(&path).map_err(std::io::Error::other))
+        {
+            self.last_error = Some(format!("Create default tokenizer: {error}"));
+            return;
+        }
+        self.config.tokenizer_path = Some(path.display().to_string());
+        self.save_config();
+        self.refresh_tokenizer();
+        self.log_event("Default byte tokenizer created automatically.");
+    }
+
+    pub fn start_web_learning(&mut self) {
+        if self.safe_mode {
+            self.last_error = Some("Web Learning is disabled in Safe Mode.".into());
+            return;
+        }
+        self.ensure_default_tokenizer();
+        let mut settings = self.config.web.clone();
+        settings.tokenizer_path = self.tokenizer_path.clone();
+        settings.autonomous = self.config.web.autonomous;
+        settings.normalize();
+        self.config.web = settings.clone();
+        self.save_config();
+
+        if let Some(web) = &self.web {
+            let command = if self.web_status == WebStatus::Paused { WebCommand::Resume } else { WebCommand::Start };
+            if let Err(error) = web.send(command) {
+                self.last_error = Some(error);
+            }
+            return;
+        }
+
+        match WebLearner::spawn(&self.root, settings) {
+            Ok(web) => {
+                if let Err(error) = web.send(WebCommand::Start) {
+                    self.last_error = Some(error);
+                    return;
+                }
+                self.web = Some(web);
+                self.web_status = WebStatus::Starting;
+                self.log_event("Web Learning start requested.");
+                self.logger.app("Web Learning start requested");
+            }
+            Err(error) => {
+                self.last_error = Some(error);
+            }
+        }
+    }
+
+    pub fn pause_web_learning(&mut self) {
+        if let Some(web) = &self.web {
+            if let Err(error) = web.send(WebCommand::Pause) {
+                self.last_error = Some(error);
+            } else {
+                self.web_status = WebStatus::Pausing;
+                self.log_event("Web Learning pause requested.");
+            }
+        }
+    }
+
+    pub fn stop_web_learning(&mut self) {
+        if let Some(web) = &self.web {
+            if let Err(error) = web.send(WebCommand::Stop) {
+                self.last_error = Some(error);
+            } else {
+                self.web_status = WebStatus::Stopping;
+                self.log_event("Web Learning stop requested.");
+            }
+        }
+    }
+
+    pub fn scan_web_now(&mut self) {
+        if let Some(web) = &self.web {
+            if let Err(error) = web.send(WebCommand::ScanNow) {
+                self.last_error = Some(error);
+            }
+        } else {
+            self.start_web_learning();
+            if let Some(web) = &self.web {
+                let _ = web.send(WebCommand::ScanNow);
+            }
+        }
+    }
+
+    fn poll_web(&mut self) {
+        let Some(web) = &self.web else { return; };
+        let mut events = Vec::new();
+        while let Ok(event) = web.events.try_recv() {
+            events.push(event);
+        }
+        for event in events {
+            match event {
+                WebEvent::Status(status) => {
+                    self.web_status = status;
+                    self.log_event(format!("Web Learning: {:?}", status));
+                }
+                WebEvent::Stats(stats) => {
+                    self.web_stats = stats;
+                }
+                WebEvent::ArticleAccepted(article) => {
+                    self.log_event(format!("Web accepted: {}", article.title));
+                    self.logger.app(format!(
+                        "Web accepted article source={} tokens={} url={}",
+                        article.source_id, article.token_count, article.canonical_url
+                    ));
+                }
+                WebEvent::Error { source_id, error } => {
+                    self.logger.app(format!("Web error source={source_id:?}: {error}"));
+                    self.log_event(format!("Web error: {error}"));
+                }
+                WebEvent::Offline(error) => {
+                    self.web_status = WebStatus::Offline;
+                    self.logger.app(format!("Web offline: {error}"));
+                }
+            }
+        }
+    }
+
+    fn drive_autonomous_training(&mut self) {
+        if !self.config.web.autonomous
+            || self.safe_mode
+            || self.page == AppPage::Chat
+            || self.is_trainer_running()
+            || self.web_stats.training_queue == 0
+        {
+            return;
+        }
+        self.start_web_training_batch();
+    }
+
+    pub fn start_web_training_batch(&mut self) {
+        if self.model.is_none() {
+            self.last_error = Some("Create or load a model before Web Learning training.".into());
+            return;
+        }
+        self.ensure_default_tokenizer();
+        let Some(tokenizer_path) = self.tokenizer_path.clone() else {
+            self.last_error = Some("Web Learning tokenizer is unavailable.".into());
+            return;
+        };
+        let Some(model_path) = self.model.as_ref().map(|m| m.path.clone()) else {
+            return;
+        };
+
+        let (snapshot, lines) = match TrainingBridge::prepare_snapshot(
+            &self.root,
+            self.config.web.replay_ratio_percent,
+        ) {
+            Ok(value) => value,
+            Err(error) => {
+                self.last_error = Some(format!("Prepare Web training batch: {error}"));
+                return;
+            }
+        };
+        if lines == 0 {
+            return;
+        }
+
+        let tokenizer = match Tokenizer::load(&tokenizer_path) {
+            Ok(value) => value,
+            Err(error) => {
+                self.last_error = Some(error);
+                return;
+            }
+        };
+        let model = match AiNet::load(&model_path) {
+            Ok(value) => value,
+            Err(error) => {
+                self.last_error = Some(error);
+                return;
+            }
+        };
+        let mut config = self.training_config();
+        config.continuous = false;
+        config.epochs = 1;
+
+        let checksum = model.weights_checksum();
+        let trainer = match Trainer::new(
+            model,
+            tokenizer,
+            snapshot.clone(),
+            DatasetFormat::Txt,
+            config,
+            &self.root,
+        ) {
+            Ok(value) => value,
+            Err(error) => {
+                self.last_error = Some(format!("Create Web trainer: {error}"));
+                return;
+            }
+        };
+        let worker = TrainingWorker::spawn(trainer, Some(self.root.join("training.command")));
+        if let Err(error) = worker.send(TrainingCommand::Start) {
+            self.last_error = Some(error);
+            return;
+        }
+
+        self.dataset = Some(DatasetInfo {
+            path: snapshot,
+            format: DatasetFormat::Txt,
+            metadata_id: Some("web-corpus".into()),
+            report: None,
+            error: None,
+        });
+        self.training = TrainingSnapshot {
+            state: TrainingStatus::Starting,
+            initial_checksum: Some(checksum),
+            learning_rate: self.config.training.learning_rate,
+            started_at_ms: Some(now_ms()),
+            ..Default::default()
+        };
+        self.loss_points.clear();
+        self.model_stats = ModelStatsSnapshot::default();
+        self.worker = Some(worker);
+        self.log_event(format!("Web training batch started: {} samples.", lines));
+        self.logger.training(format!("Web training batch started from {}", snapshot.display()));
     }
 
     pub fn pick_dataset(&mut self) {
@@ -1235,6 +1480,9 @@ impl Drop for AppCore {
         }
         if let Some(mut worker) = self.worker.take() {
             worker.join();
+        }
+        if let Some(mut web) = self.web.take() {
+            web.stop_and_join();
         }
         self.resource_monitor.stop();
         self.runtime.mark_clean();
