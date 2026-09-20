@@ -94,9 +94,11 @@ fn corrupt_model_fails_loudly_without_panicking() {
     fs::create_dir_all(model_path.parent().unwrap()).unwrap();
     fs::write(&model_path, b"not-an-aimodel").unwrap();
 
-    let mut config = AppConfig::default();
-    config.first_start = false;
-    config.model_path = Some(model_path.display().to_string());
+    let config = AppConfig {
+        first_start: false,
+        model_path: Some(model_path.display().to_string()),
+        ..AppConfig::default()
+    };
     config.save(&root).unwrap();
 
     let logger = Logger::new(root.join("logs")).unwrap();
