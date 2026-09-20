@@ -1,4 +1,6 @@
+pub mod app;
 pub mod architecture;
+pub mod cli;
 pub mod dataset;
 pub mod error;
 pub mod inference;
