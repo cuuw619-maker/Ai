@@ -320,6 +320,7 @@ impl Trainer {
         let mut accumulation_count = 0usize;
         let mut memory = self.memory_state.clone();
         let mut evaluator = evaluator;
+        let mut sequences_this_epoch = 0u64;
         let started = now_ms();
 
         loop {
@@ -371,12 +372,19 @@ impl Trainer {
                             started,
                         );
                     }
+                    if sequences_this_epoch == 0 {
+                        let _ = events.send(TrainingEvent::Failed(
+                            "dataset produced no trainable sequences for this epoch".into(),
+                        ));
+                        return;
+                    }
                     self.state.epoch += 1;
                     if let Some(evaluator) = evaluator.as_deref_mut() {
                         match evaluator.evaluate(&self.model) {
                             Ok(loss) => {
                                 let _ = append_evaluation(
                                     &self.run_dir.join("metrics.jsonl"),
+                                    &self.state.run_id,
                                     self.state.epoch,
                                     loss,
                                 );
@@ -401,6 +409,7 @@ impl Trainer {
                         return;
                     }
                     self.state.tokens_this_epoch = 0;
+                    sequences_this_epoch = 0;
                     for layer in &mut memory {
                         layer.fill(0.0);
                     }
@@ -457,6 +466,7 @@ impl Trainer {
                     self.state.tokens_this_run += sequence.input.len() as u64;
                     self.state.tokens_this_epoch += sequence.input.len() as u64;
                     self.state.cursor = sequence.cursor_after;
+                    sequences_this_epoch += 1;
                 }
                 Err(e) => {
                     let _ = events.send(TrainingEvent::Failed(e));
@@ -670,13 +680,13 @@ fn poll_commands(
     (pause, stop)
 }
 
-fn append_evaluation(path: &Path, epoch: u64, loss: f32) -> Result<(), String> {
+fn append_evaluation(path: &Path, run_id: &str, epoch: u64, loss: f32) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create metrics dir: {e}"))?;
     }
     let line = serde_json::json!({
         "timestamp_unix_ms": now_ms(),
-        "run_id": "",
+        "run_id": run_id,
         "state": "Evaluation",
         "epoch": epoch,
         "eval_loss": loss
