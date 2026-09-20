@@ -388,7 +388,7 @@ impl AiCell {
         (dx, dm_prev)
     }
 
-    fn parameters_mut(&mut self) -> [&mut Parameter; 11] {
+    fn parameters_mut(&mut self) -> [&mut Parameter; 13] {
         [
             &mut self.w_keep,
             &mut self.u_keep,
@@ -516,7 +516,7 @@ impl AiNet {
     }
 
     pub fn parameters_mut(&mut self) -> Vec<&mut Parameter> {
-        let mut result = Vec::with_capacity(self.config.layer_count * 11 + 3);
+        let mut result = Vec::with_capacity(self.config.layer_count * 13 + 3);
         result.push(&mut self.embedding);
         if let Some(p) = &mut self.input_projection_w {
             result.push(p);
@@ -789,7 +789,7 @@ impl AiNet {
     }
 
     pub fn parameters(&self) -> Vec<&Parameter> {
-        let mut result = Vec::with_capacity(self.config.layer_count * 11 + 3);
+        let mut result = Vec::with_capacity(self.config.layer_count * 13 + 3);
         result.push(&self.embedding);
         if let Some(p) = &self.input_projection_w {
             result.push(p);
