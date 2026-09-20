@@ -754,6 +754,7 @@ impl AppCore {
             match event {
                 TrainingEvent::Started(progress) => self.apply_progress(progress),
                 TrainingEvent::Step(progress) => self.apply_progress(progress),
+                TrainingEvent::ModelSnapshot(snapshot) => self.apply_model_snapshot(snapshot),
                 TrainingEvent::CheckpointSaved(path) => {
                     self.training.checkpoint = Some(path.clone());
                     self.logger.training(format!("Checkpoint saved: {}", path.display()));
@@ -794,6 +795,27 @@ impl AppCore {
             self.last_error = Some("Trainer thread exited unexpectedly.".into());
             self.log_event("Trainer thread exited unexpectedly.");
             self.worker = None;
+        }
+    }
+
+    fn apply_model_snapshot(&mut self, snapshot: ModelTrainingSnapshot) {
+        self.model_stats = ModelStatsSnapshot {
+            parameter_count: snapshot.parameter_count,
+            checksum: snapshot.checksum,
+            gradient_norm: snapshot.gradient_magnitude,
+            weight_norm: 0.0,
+            updated_parameters: snapshot.updated_parameters,
+            average_update: snapshot.average_update,
+            max_update: snapshot.max_update,
+            layers: snapshot.layers.into_iter().map(|layer| LayerStats {
+                layer: layer.layer,
+                weight_norm: layer.weight_norm,
+                gradient_norm: layer.gradient_norm,
+                memory_norm: layer.memory_norm,
+            }).collect(),
+        };
+        if let Some(model) = &mut self.model {
+            model.checksum = snapshot.checksum;
         }
     }
 
