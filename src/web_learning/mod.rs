@@ -732,7 +732,8 @@ impl CorpusStore {
 
     pub fn recover_inflight(&self) -> Result<usize, String> {
         self.connection()?.execute(
-            "UPDATE training_queue SET state='queued' WHERE state='inflight'"
+            "UPDATE training_queue SET state='queued' WHERE state='inflight'",
+            []
         ).map_err(|e| format!("recover training queue: {e}"))
     }
 
