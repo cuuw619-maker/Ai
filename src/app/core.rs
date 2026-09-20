@@ -607,7 +607,7 @@ impl AppCore {
                     self.web_stats = stats;
                     self.logger.web(format!(
                         "stats sources={} scanned={} accepted={} rejected={} duplicates={} queued_tokens={}",
-                        stats.sources,
+                        stats.sources.to_string(),
                         stats.pages_scanned,
                         stats.pages_accepted,
                         stats.pages_rejected,

@@ -648,7 +648,7 @@ impl AiApplication {
 
         ui.add_space(10.0);
         ui.horizontal_wrapped(|ui| {
-            metric_card(ui, "Sources", self.core.web_stats.sources, format!("active {}", self.core.web_stats.active_sources));
+            metric_card(ui, "Sources", self.core.web_stats.sources.to_string(), format!("active {}", self.core.web_stats.active_sources));
             metric_card(ui, "Pages scanned", self.core.web_stats.pages_scanned.to_string(), format!("accepted {}", self.core.web_stats.pages_accepted));
             metric_card(ui, "Pages rejected", self.core.web_stats.pages_rejected.to_string(), format!("duplicates {}", self.core.web_stats.duplicates_skipped));
             metric_card(ui, "Articles", self.core.web_stats.articles_collected.to_string(), "quality-filtered".to_string());

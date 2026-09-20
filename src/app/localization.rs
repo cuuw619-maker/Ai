@@ -54,7 +54,7 @@ pub fn text(language: &str, key: &str) -> &'static str {
                 "WEB LEARNING" => "WEB LEARNING",
                 _ => "",
             },
-            _ => key,
+            _ => "",
         }
     }
 }

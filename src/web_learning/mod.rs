@@ -899,6 +899,7 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
                     }
                 }
             }
+            stats.current_url = result.articles.last().map(|article| article.canonical_url.clone());
             for article in result.articles {
                 if store.is_duplicate(&article).unwrap_or(true) {
                     stats.duplicates_skipped += 1;
@@ -919,11 +920,6 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
                 }
             }
             let persistent = store.stats().unwrap_or_default();
-            stats.current_url = result
-                .articles
-                .last()
-                .map(|article| article.canonical_url.clone())
-                .or(stats.current_url.clone());
             stats.training_queue = persistent.training_queue;
             stats.last_update = Some(now_ms());
             let _ = store.enforce_retention(settings.retention_max_articles);
