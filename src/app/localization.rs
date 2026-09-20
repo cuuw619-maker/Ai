@@ -19,7 +19,6 @@ pub fn text(language: &str, key: &str) -> &'static str {
             "SETTINGS" => "НАСТРОЙКИ",
             "SYSTEM" => "СИСТЕМА",
             "WEB LEARNING" => "ВЕБ-ОБУЧЕНИЕ",
-            "DATA DISCOVERY" => "ПОИСК ДАТАСЕТОВ",
             "Own Neural Engine" => "Собственный нейронный движок",
             "LOCAL / FROM SCRATCH" => "ЛОКАЛЬНО / С НУЛЯ",
             "Language" => "Язык",
