@@ -6,6 +6,7 @@ use ai::app::{
     install_panic_hook, show_startup_error, AiApplication, AppCore, CrashContext, Logger,
 };
 use std::path::PathBuf;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
 
 fn main() {
@@ -57,15 +58,31 @@ fn main() {
         viewport,
         ..Default::default()
     };
-    let result = eframe::run_native(
-        "Ai — Own Neural Engine",
-        options,
-        Box::new(move |_cc| Ok(Box::new(AiApplication::new(core)))),
-    );
-    if let Err(error) = result {
-        logger.app(format!("eframe terminated with error: {error}"));
-        logger.crash(format!("UI STARTUP/SHUTDOWN ERROR\nmessage={error}"));
-        show_startup_error(&error.to_string(), &log_dir.join("crash.log"));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        eframe::run_native(
+            "Ai — Own Neural Engine",
+            options,
+            Box::new(move |_cc| Ok(Box::new(AiApplication::new(core)))),
+        )
+    }));
+
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            logger.app(format!("eframe terminated with error: {error}"));
+            logger.crash(format!("UI STARTUP/SHUTDOWN ERROR\nmessage={error}"));
+            show_startup_error(&error.to_string(), &log_dir.join("crash.log"));
+        }
+        Err(_) => {
+            let details = format!(
+                "Unhandled panic reached the application boundary.\n                 See data/logs/crash.log for the panic payload and backtrace.\n                 Application version: {}\n                 Architecture: {}",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::ARCH
+            );
+            logger.app("unhandled panic recovered at native application boundary");
+            logger.crash(&details);
+            show_startup_error(&details, &log_dir.join("crash.log"));
+        }
     }
 }
 
