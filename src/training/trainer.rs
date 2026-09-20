@@ -212,6 +212,18 @@ impl Trainer {
             return Err("checkpoint tokenizer_id does not match current tokenizer".into());
         }
         let model = AiNet::from_aimodel_bytes(&data.model_bytes)?;
+        if model.config.architecture != data.model_architecture {
+            return Err(format!(
+                "checkpoint architecture mismatch: metadata={} model={}",
+                data.model_architecture, model.config.architecture
+            ));
+        }
+        if model.config.model_id != data.model_id {
+            return Err(format!(
+                "checkpoint model_id mismatch: metadata={} model={}",
+                data.model_id, model.config.model_id
+            ));
+        }
         if model.weights_checksum() != data.model_checksum {
             return Err("checkpoint model checksum mismatch".into());
         }
