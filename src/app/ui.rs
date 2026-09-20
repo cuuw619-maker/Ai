@@ -934,9 +934,21 @@ impl AiApplication {
                 let (parameters, estimated_bytes) =
                     self.core.training_resource_estimate().unwrap_or((0, 0));
                 row_value(ui, "Parameters", &parameters.to_string());
-                row_value(ui, "Model + training estimate", &AppCore::format_mb(estimated_bytes));
-                row_value(ui, "Available RAM", &AppCore::format_mb(self.core.resources.ram_available_bytes));
-                row_value(ui, "Sequence", &self.core.config.training.sequence_length.to_string());
+                row_value(
+                    ui,
+                    "Model + training estimate",
+                    &AppCore::format_mb(estimated_bytes),
+                );
+                row_value(
+                    ui,
+                    "Available RAM",
+                    &AppCore::format_mb(self.core.resources.ram_available_bytes),
+                );
+                row_value(
+                    ui,
+                    "Sequence",
+                    &self.core.config.training.sequence_length.to_string(),
+                );
                 row_value(ui, "Batch", "1");
                 row_value(ui, "Gradient accumulation", &self.core.config.training.gradient_accumulation.to_string());
                 row_value(ui, "Threads", &self.core.config.training.max_cpu_threads.to_string());
@@ -944,11 +956,17 @@ impl AiApplication {
                 row_value(ui, "Epochs", &self.core.config.training.epochs.to_string());
 
                 let memory_warning = estimated_bytes > self.core.resources.ram_available_bytes
-                    || estimated_bytes / 1024 / 1024 > self.core.config.training.memory_budget_mb as u64;
+                    || estimated_bytes / 1024 / 1024
+                        > self.core.config.training.memory_budget_mb as u64;
                 if memory_warning {
                     ui.add_space(8.0);
-                    ui.colored_label(Color32::YELLOW, "WARNING: estimated memory is above the configured safe envelope.");
-                    ui.label("LOW MEMORY MODE reduces sequence length, accumulation and memory budget.");
+                    ui.colored_label(
+                        Color32::YELLOW,
+                        "WARNING: estimated memory is above the configured safe envelope.",
+                    );
+                    ui.label(
+                        "LOW MEMORY MODE reduces sequence length, accumulation and memory budget.",
+                    );
                 }
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
