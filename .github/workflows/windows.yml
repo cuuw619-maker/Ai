@@ -7,11 +7,11 @@ on:
     branches: [main]
 
 concurrency:
-  group: windows-ci-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test-and-build:
@@ -27,17 +27,9 @@ jobs:
           targets: x86_64-pc-windows-msvc
           components: rustfmt, clippy
 
-      - name: Normalize Rust formatting
+      - name: Normalize formatting in workspace
         shell: bash
-        run: |
-          cargo fmt
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .
-            git commit -m "chore: normalize rustfmt [skip ci]"
-            git push
-          fi
+        run: cargo fmt
 
       - name: Format check
         run: cargo fmt --check
