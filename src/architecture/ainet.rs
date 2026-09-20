@@ -815,6 +815,10 @@ impl AiNet {
         }
         result.push(&self.output_w);
         result.push(&self.output_b);
+        for cell in &self.cells {
+            result.push(&cell.router_w);
+            result.push(&cell.router_b);
+        }
         result
     }
 
@@ -1268,22 +1272,18 @@ fn routing_entropy(probs: &[f32]) -> f32 {
     (entropy / (probs.len() as f32).ln()).clamp(0.0, 1.0)
 }
 
-fn routing_stats_from_probs(probs: &[f32], channels: usize, top_k: usize) -> RoutingStats {
+fn routing_stats_from_probs(probs: &[f32], channels: usize, _top_k: usize) -> RoutingStats {
+    // Training deliberately uses soft routing, so every block participates in the
+    // forward/backward computation. Entropy still exposes how concentrated the
+    // learned router is without pretending skipped work occurred.
     let total_blocks = probs.len();
-    let active_blocks = top_k.min(total_blocks).max(1);
-    let block_size = ANR_BLOCK_SIZE;
-    let mut active_channels = 0usize;
-    for block in 0..active_blocks {
-        let _ = block;
-        active_channels += block_size.min(channels.saturating_sub(block * block_size));
-    }
     RoutingStats {
-        active_blocks,
+        active_blocks: total_blocks,
         total_blocks,
-        active_channels,
+        active_channels: channels,
         total_channels: channels,
-        skipped_channels: channels.saturating_sub(active_channels),
-        active_ratio: active_channels as f32 / channels.max(1) as f32,
+        skipped_channels: 0,
+        active_ratio: 1.0,
         entropy: routing_entropy(probs),
     }
 }
@@ -1713,6 +1713,62 @@ mod tests {
                 || (analytical_embedding - numerical_embedding).abs() / emb_den < 1e-1,
             "embedding gradient mismatch: analytical={analytical_embedding}, numerical={numerical_embedding}"
         );
+    }
+
+    #[test]
+    fn adaptive_routing_uses_top_k_blocks_in_inference() {
+        let mut model = AiNet::new(ModelConfig {
+            architecture: "AiNet-v1.1".into(),
+            model_id: "anr-test".into(),
+            vocab_size: 8,
+            embedding_dim: 8,
+            hidden_dim: 128,
+            layer_count: 1,
+            sequence_length: 8,
+            seed: 9876,
+        })
+        .unwrap();
+
+        let _ = model.inference_logits(1).unwrap();
+        let stats = model.routing_stats();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].total_blocks, 8);
+        assert_eq!(stats[0].active_blocks, 6);
+        assert_eq!(stats[0].active_channels, 96);
+        assert_eq!(stats[0].skipped_channels, 32);
+        assert!((stats[0].active_ratio - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn router_parameters_receive_training_gradients() {
+        let mut model = AiNet::new(ModelConfig {
+            architecture: "AiNet-v1.1".into(),
+            model_id: "anr-gradient-test".into(),
+            vocab_size: 8,
+            embedding_dim: 8,
+            hidden_dim: 128,
+            layer_count: 1,
+            sequence_length: 8,
+            seed: 1357,
+        })
+        .unwrap();
+        let input = [1usize, 2, 3, 4];
+        let target = [2usize, 3, 4, 5];
+        model.train_step(&input, &target, None).unwrap();
+        let router_norm: f32 = model.cells[0]
+            .router_w
+            .grad
+            .iter()
+            .map(|value| value.abs())
+            .sum::<f32>()
+            + model.cells[0]
+                .router_b
+                .grad
+                .iter()
+                .map(|value| value.abs())
+                .sum::<f32>();
+        assert!(router_norm.is_finite());
+        assert!(router_norm > 0.0);
     }
 
     #[test]
