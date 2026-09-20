@@ -2,6 +2,7 @@ use super::core::{AppCore, AppPage, ModelInfo};
 use crate::inference::GenerationConfig;
 use crate::training::TrainingStatus;
 use crate::web_learning::WebStatus;
+use super::localization;
 use eframe::egui::{
     self, Align, Align2, Color32, FontId, Layout, RichText, Stroke, StrokeKind, TextStyle, Ui, Vec2,
 };
@@ -94,7 +95,7 @@ impl AiApplication {
                 for page in AppPage::ALL {
                     let selected = self.core.page == page;
                     let button =
-                        egui::Button::new(RichText::new(page.name()).strong().size(if selected {
+                        egui::Button::new(RichText::new(localization::page_label(page, &self.core.config.ui_language)).strong().size(if selected {
                             13.0
                         } else {
                             12.0
@@ -150,7 +151,7 @@ impl AiApplication {
     fn header(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(page_title(self.core.page))
+                RichText::new(localization::page_title(self.core.page, &self.core.config.ui_language))
                     .size(24.0)
                     .strong(),
             );
@@ -844,57 +845,72 @@ impl AiApplication {
     }
 
     fn memory(&mut self, ui: &mut Ui) {
+        let mut model_bytes = 0u64;
+        let mut gradient_bytes = 0u64;
+        let mut optimizer_bytes = 0u64;
+        let mut bptt_bytes = 0u64;
+        let mut total_estimate = 0u64;
+
+        if let Some(model) = &self.core.model {
+            let parameter_bytes = (model.parameter_count as u64).saturating_mul(4);
+            model_bytes = parameter_bytes;
+            gradient_bytes = parameter_bytes;
+            optimizer_bytes = parameter_bytes.saturating_mul(2);
+            if let Some(config) = &model.config {
+                bptt_bytes = (self.core.config.training.sequence_length as u64)
+                    .saturating_mul(config.layer_count as u64)
+                    .saturating_mul(config.hidden_dim as u64)
+                    .saturating_mul(7)
+                    .saturating_mul(4);
+            }
+            total_estimate = model_bytes
+                .saturating_add(gradient_bytes)
+                .saturating_add(optimizer_bytes)
+                .saturating_add(bptt_bytes)
+                .saturating_add(bptt_bytes)
+                .saturating_add(4 * 1024 * 1024);
+        }
+
         card(ui, |ui| {
-            row_value(
-                ui,
-                "Process RAM",
-                &AppCore::format_mb(self.core.resources.process_ram_bytes),
-            );
-            row_value(
-                ui,
-                "Available RAM",
-                &AppCore::format_mb(self.core.resources.ram_available_bytes),
-            );
-            row_value(
-                ui,
-                "Total RAM",
-                &AppCore::format_mb(
-                    self.core
-                        .resources
-                        .ram_used_bytes
-                        .saturating_add(self.core.resources.ram_available_bytes),
-                ),
-            );
-            if let Some(model) = &self.core.model {
-                if let Some(config) = &model.config {
-                    let weight_bytes = model.parameter_count.saturating_mul(4);
-                    let bptt_bytes = self
-                        .core
-                        .config
-                        .training
-                        .sequence_length
-                        .saturating_mul(config.layer_count)
-                        .saturating_mul(config.hidden_dim)
-                        .saturating_mul(7)
-                        .saturating_mul(4);
-                    let estimated = weight_bytes
-                        .saturating_mul(4)
-                        .saturating_add(bptt_bytes.saturating_mul(2))
-                        .saturating_add(4 * 1024 * 1024);
-                    row_value(
-                        ui,
-                        "Parameter storage",
-                        &AppCore::format_mb(weight_bytes as u64),
-                    );
-                    row_value(ui, "BPTT estimate", &AppCore::format_mb(bptt_bytes as u64));
-                    row_value(
-                        ui,
-                        "Estimated training",
-                        &AppCore::format_mb(estimated as u64),
-                    );
-                }
+            row_value(ui, "Model RAM", &AppCore::format_mb(model_bytes));
+            row_value(ui, "Gradient RAM", &AppCore::format_mb(gradient_bytes));
+            row_value(ui, "Optimizer RAM (Adam m+v)", &AppCore::format_mb(optimizer_bytes));
+            row_value(ui, "BPTT RAM", &AppCore::format_mb(bptt_bytes));
+            row_value(ui, "Web cache RAM", "0 MB (no retained in-memory page cache)");
+            row_value(ui, "Estimated training RAM", &AppCore::format_mb(total_estimate));
+            row_value(ui, "Process RAM", &AppCore::format_mb(self.core.resources.process_ram_bytes));
+            row_value(ui, "Available RAM", &AppCore::format_mb(self.core.resources.ram_available_bytes));
+            if self.core.model.is_none() {
+                ui.label("No model loaded; model-specific memory is 0.");
             }
         });
+
+        if let Some(model) = &self.core.model {
+            if let Some(config) = &model.config {
+                let memory_budget = (self.core.config.training.memory_budget_mb as u64).saturating_mul(1024 * 1024);
+                if total_estimate > memory_budget {
+                    card(ui, |ui| {
+                        ui.colored_label(Color32::YELLOW, "MEMORY BUDGET WARNING");
+                        ui.label(format!(
+                            "Estimated training RAM {} exceeds configured budget {}.",
+                            AppCore::format_mb(total_estimate),
+                            AppCore::format_mb(memory_budget)
+                        ));
+                    });
+                }
+                ui.add_space(8.0);
+                card(ui, |ui| {
+                    ui.label(RichText::new("MODEL SIZE").strong());
+                    row_value(ui, "Parameters", &model.parameter_count.to_string());
+                    row_value(ui, "Weight RAM", &AppCore::format_mb(model_bytes));
+                    row_value(ui, "Layers", &config.layer_count.to_string());
+                    row_value(ui, "Hidden", &config.hidden_dim.to_string());
+                    row_value(ui, "Sequence", &self.core.config.training.sequence_length.to_string());
+                    row_value(ui, "Estimated total", &AppCore::format_mb(total_estimate));
+                });
+            }
+        }
+
         if self.core.low_end_profile() {
             card(ui, |ui| {
                 ui.colored_label(Color32::YELLOW, "Performance profile: LOW-END");
@@ -963,6 +979,38 @@ impl AiApplication {
 
     fn settings(&mut self, ui: &mut Ui) {
         card(ui, |ui| {
+            ui.label(RichText::new("UI Language").strong());
+            let mut language = self.core.config.ui_language.clone();
+            egui::ComboBox::from_id_salt("ui-language")
+                .selected_text(if localization::is_russian(&language) { "Русский" } else { "English" })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut language, "English".into(), "English");
+                    ui.selectable_value(&mut language, "Russian".into(), "Русский");
+                });
+            if language != self.core.config.ui_language {
+                self.core.config.ui_language = language;
+                self.core.save_config();
+            }
+
+            ui.label(RichText::new("AI/Data Languages").strong());
+            let options = ["English", "Russian", "Ukrainian"];
+            for option in options {
+                let mut enabled = self.core.config.ai_languages.iter().any(|v| v.eq_ignore_ascii_case(option));
+                if ui.checkbox(&mut enabled, option).changed() {
+                    if enabled {
+                        if !self.core.config.ai_languages.iter().any(|v| v.eq_ignore_ascii_case(option)) {
+                            self.core.config.ai_languages.push(option.into());
+                        }
+                    } else {
+                        self.core.config.ai_languages.retain(|v| !v.eq_ignore_ascii_case(option));
+                    }
+                    if self.core.config.ai_languages.is_empty() {
+                        self.core.config.ai_languages.push("English".into());
+                    }
+                    self.core.save_config();
+                }
+            }
+
             egui::Grid::new("settings")
                 .num_columns(2)
                 .spacing([16.0, 10.0])

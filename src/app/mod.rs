@@ -1,6 +1,7 @@
 mod config;
 mod core;
 mod ext;
+mod localization;
 mod logging;
 mod resources;
 mod startup;
