@@ -768,7 +768,7 @@ impl AppCore {
                 "file_size": m.file_size,
                 "model_id": m.config.as_ref().map(|c| c.model_id.clone()),
                 "architecture": m.config.as_ref().map(|c| c.architecture.clone()),
-            }));
+            })),
             "dataset": self.dataset.as_ref().map(|d| serde_json::json!({
                 "path": d.path,
                 "format": format!("{:?}", d.format),
