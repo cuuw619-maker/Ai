@@ -237,7 +237,7 @@ impl AiApplication {
             });
         });
 
-        if let Some(recovery) = &self.core.recovery_session {
+        if let Some(recovery) = self.core.recovery_session.clone() {
             card(ui, |ui| {
                 ui.colored_label(Color32::YELLOW, "PREVIOUS TRAINING SESSION FOUND");
                 ui.label(format!(
@@ -621,7 +621,8 @@ impl AiApplication {
             }
         });
 
-        if let Some(dataset) = self.core.dataset.as_ref() {
+        let dataset = self.core.dataset.clone();
+        if let Some(dataset) = dataset {
             card(ui, |ui| {
                 row_value(ui, "File", &dataset.path.display().to_string());
                 row_value(ui, "Format", &format!("{:?}", dataset.format));
@@ -915,7 +916,7 @@ impl AiApplication {
             );
             row_value(
                 ui,
-                "Training CPU",
+                "Process CPU",
                 &format!("{:.1}%", self.core.resources.process_cpu_percent),
             );
             row_value(
