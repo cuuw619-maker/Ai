@@ -1772,22 +1772,6 @@ impl eframe::App for AiApplication {
     }
 }
 
-fn page_title(page: AppPage) -> &'static str {
-    match page {
-        AppPage::Home => "Home",
-        AppPage::Chat => "Chat",
-        AppPage::Train => "Training",
-        AppPage::Model => "Model",
-        AppPage::Dataset => "Dataset",
-        AppPage::Memory => "Memory",
-        AppPage::Evaluation => "Evaluation",
-        AppPage::Logs => "Logs",
-        AppPage::Settings => "Settings",
-        AppPage::System => "System & Diagnostics",
-        AppPage::WebLearning => "Web Learning",
-    }
-}
-
 fn status_line(ui: &mut Ui, key: &str, value: &str) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(key).small());

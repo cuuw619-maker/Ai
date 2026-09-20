@@ -1,3 +1,4 @@
+#![allow(clippy::manual_is_ascii_check, clippy::needless_range_loop, unused_assignments)]
 use encoding_rs::Encoding;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -322,7 +323,7 @@ impl LanguageDetector {
             if ch.is_alphabetic() {
                 letters += 1;
                 let lower = ch.to_ascii_lowercase();
-                if ('a'..='z').contains(&lower) { latin += 1; }
+                if lower.is_ascii_lowercase() { latin += 1; }
                 if ('а'..='я').contains(&lower) || "ёіїєґ".contains(lower) { cyrillic += 1; }
                 if "іїєґ".contains(lower) { uk += 1; }
             }
@@ -861,7 +862,6 @@ fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebC
                 }
                 WebCommand::ScanNow => { next_scan = Instant::now(); }
                 WebCommand::Stop => {
-                    paused = true;
                     let _ = event_tx.send(WebEvent::Status(WebStatus::Stopping));
                     for handle in active.drain(..) { let _ = handle.join(); }
                     let _ = event_tx.send(WebEvent::Status(WebStatus::Stopped));
