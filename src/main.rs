@@ -7,7 +7,6 @@ use ai::training::{
 };
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::time::Instant;
 
 fn main() {
