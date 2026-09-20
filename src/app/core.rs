@@ -264,7 +264,10 @@ impl AppCore {
         logger.app("application bootstrap started");
 
         let page = parse_page(&config.selected_page);
-        let safe_mode = config.safe_mode;
+        let safe_mode = config.safe_mode || config_recovered;
+        if config_recovered {
+            logger.app("startup recovery: entering Safe Mode after corrupted configuration");
+        }
         let resource_monitor =
             ResourceMonitor::start(Duration::from_millis(config.ui_update_ms.max(500)));
         let mut core = Self {
