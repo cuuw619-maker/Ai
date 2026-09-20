@@ -826,6 +826,101 @@ impl AiApplication {
         self.core.dataset = Some(DatasetInfo { path, format: DatasetFormat::Aicorpus, metadata_id: Some(candidate.id.clone()), report: None, error: None });
         self.core.save_config(); self.core.validate_dataset(); self.core.log_event(format!("Dataset selected for training: {}", candidate.name));
     }
+    fn data_discovery(&mut self, ui: &mut Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("SEARCH DATASETS").strong());
+            ui.add_sized([260.0, 28.0], egui::TextEdit::singleline(&mut self.dd_query).hint_text("topic, task, domain…"));
+            egui::ComboBox::from_id_salt("dd-language").selected_text(&self.dd_language).show_ui(ui, |ui| {
+                for value in ["English", "Russian", "Ukrainian", "All"] { ui.selectable_value(&mut self.dd_language, value.into(), value); }
+            });
+            egui::ComboBox::from_id_salt("dd-topic").selected_text(&self.dd_topic).show_ui(ui, |ui| {
+                for value in ["General text", "Knowledge", "Technology", "Science", "Conversation"] { ui.selectable_value(&mut self.dd_topic, value.into(), value); }
+            });
+            egui::ComboBox::from_id_salt("dd-kind").selected_text(&self.dd_kind).show_ui(ui, |ui| {
+                for value in ["Text", "Conversation", "Knowledge", "Any"] { ui.selectable_value(&mut self.dd_kind, value.into(), value); }
+            });
+            egui::ComboBox::from_id_salt("dd-size").selected_text(&self.dd_size).show_ui(ui, |ui| {
+                for value in ["Small", "Medium", "Large", "Any"] { ui.selectable_value(&mut self.dd_size, value.into(), value); }
+            });
+        });
+        ui.horizontal(|ui| {
+            let enabled = !self.core.safe_mode && self.dataset_discovery.is_some() && !self.dd_search_active;
+            if ui.add_enabled(enabled, egui::Button::new("SEARCH DATASETS")).clicked() {
+                if let Some(manager) = &self.dataset_discovery { if let Err(e) = manager.search(self.discover_search()) { self.core.last_error = Some(e); } }
+            }
+            if ui.add_enabled(enabled, egui::Button::new("AUTO DISCOVER")).clicked() {
+                if let Some(manager) = &self.dataset_discovery { if let Err(e) = manager.search(self.discover_search()) { self.core.last_error = Some(e); } }
+            }
+            ui.add(egui::Slider::new(&mut self.dd_min_quality, 0.0..=1.0).text("minimum quality"));
+            ui.label(if self.dd_search_message.is_empty() { "Ready." } else { &self.dd_search_message });
+        });
+        card(ui, |ui| {
+            ui.label(RichText::new("PUBLIC SOURCES").strong());
+            for source in [DatasetSourceKind::HuggingFace, DatasetSourceKind::GitHub, DatasetSourceKind::Wikimedia] {
+                let status = if self.dd_searching_source.as_deref() == Some(source.label()) { "SEARCHING" } else if self.dd_search_active { "QUEUED" } else { "READY" };
+                status_line(ui, source.label(), status);
+            }
+        });
+        if let Some((id, downloaded, total)) = self.dd_progress.clone() {
+            card(ui, |ui| {
+                ui.label(RichText::new("DOWNLOAD QUEUE").strong());
+                let name = self.dd_results.iter().find(|v| v.id == id).map(|v| v.name.as_str()).unwrap_or(id.as_str());
+                ui.label(name);
+                if let Some(total) = total.filter(|v| *v > 0) {
+                    ui.add(egui::ProgressBar::new(downloaded as f32 / total as f32).text(format!("{} / {}", AppCore::format_mb(downloaded), AppCore::format_mb(total))));
+                } else { ui.label(format!("Downloaded {} • working…", AppCore::format_mb(downloaded))); }
+            });
+        }
+        ui.add_space(8.0);
+        ui.label(RichText::new(format!("DATASET RESULTS  •  {}", self.dd_results.len())).strong());
+        let results = self.dd_results.clone();
+        for candidate in results {
+            card(ui, |ui| {
+                ui.horizontal(|ui| { ui.label(RichText::new(&candidate.name).size(17.0).strong()); status_pill(ui, candidate.state.label()); if candidate.small_model_recommended { ui.label(RichText::new("RECOMMENDED").small()); } });
+                ui.label(candidate.description.clone());
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(format!("{}  •  {}  •  {}  •  {}", candidate.source.label(), candidate.language, candidate.format, candidate.size_label)).small());
+                    ui.label(RichText::new(format!("quality {:.0}%  •  {}", candidate.quality_score * 100.0, candidate.license)).small());
+                });
+                ui.label(RichText::new(format!("Author: {}", candidate.author)).small());
+                ui.label(RichText::new(candidate.source_url.clone()).small());
+                if let Some(error) = &candidate.error { ui.colored_label(Color32::RED, error); }
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("PREVIEW").clicked() { if let Some(manager)=&self.dataset_discovery { let _=manager.preview(&candidate.id); } }
+                    if ui.button("DOWNLOAD").clicked() { self.queue_discovered_download(&candidate.id, false); }
+                    if ui.button("ADD TO QUEUE").clicked() { self.queue_discovered_download(&candidate.id, false); }
+                    if candidate.state == DatasetState::Downloaded && ui.button("PREPARE").clicked() { if let Some(manager)=&self.dataset_discovery { let _=manager.prepare(&candidate.id); } }
+                    if matches!(candidate.state, DatasetState::Ready | DatasetState::UsedInTraining) && ui.button("USE FOR TRAINING").clicked() { if let Some(manager)=&self.dataset_discovery { let _=manager.use_for_training(&candidate.id); } }
+                    if ui.button("REMOVE").clicked() { if let Some(manager)=&self.dataset_discovery { let _=manager.remove(&candidate.id); } }
+                });
+            });
+        }
+        card(ui, |ui| {
+            ui.label(RichText::new("DATA FLOW").strong());
+            ui.label("Internet → Dataset Discovery → Download Queue → Validate → Prepare → .aicorpus → Training");
+            ui.label("Downloads are sequential. Only public HTTP(S) data files are accepted; downloaded content is never executed.");
+        });
+        if let Some((id, samples)) = self.dd_preview.clone() {
+            egui::Window::new("Dataset Preview").collapsible(false).resizable(true).default_size([720.0, 420.0]).show(ui.ctx(), |ui| {
+                ui.label(format!("Preview: {}", self.dd_results.iter().find(|v| v.id == id).map(|v| v.name.as_str()).unwrap_or(id.as_str())));
+                for (i, sample) in samples.iter().enumerate() { card(ui, |ui| { ui.label(RichText::new(format!("Sample {}", i+1)).small().strong()); ui.label(sample); }); }
+                if samples.is_empty() { ui.label("No preview records were returned."); }
+                if ui.button("CLOSE").clicked() { self.dd_preview=None; }
+            });
+        }
+        if let Some((id, size, limit)) = self.dd_pending_approval.clone() {
+            egui::Window::new("Large dataset approval").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0.0,0.0]).show(ui.ctx(), |ui| {
+                let name = self.dd_results.iter().find(|v| v.id == id).map(|v| v.name.as_str()).unwrap_or(id.as_str());
+                ui.label(format!("{} requires {} of disk/network transfer.", name, AppCore::format_mb(size)));
+                ui.label(format!("Pre-approval threshold: {}.", AppCore::format_mb(limit)));
+                ui.label("No bytes are downloaded until you explicitly approve this transfer.");
+                ui.horizontal(|ui| {
+                    if ui.button("DOWNLOAD ANYWAY").clicked() { self.queue_discovered_download(&id, true); self.dd_pending_approval=None; }
+                    if ui.button("CANCEL").clicked() { self.dd_pending_approval=None; }
+                });
+            });
+        }
+    }
     fn dataset(&mut self, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
             if ui.button("ADD DATASET").clicked() && !self.core.safe_mode {
