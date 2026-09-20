@@ -3,7 +3,7 @@ use ai::model::{AiNet, ModelConfig};
 use ai::tokenizer::{default_special_tokens, Tokenizer, TokenizerTrainer, TokenizerTrainerConfig};
 use ai::training::{Trainer, TrainingCommand, TrainingConfig, TrainingEvent, TrainingWorker};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
