@@ -20,17 +20,29 @@ pub struct DatasetReader {
     reader: BufReader<File>,
     next_sample_index: u64,
     pub max_line_bytes: usize,
+    csv_headers: Option<Vec<String>>,
 }
 
 impl DatasetReader {
     pub fn open(path: &Path, format: DatasetFormat) -> Result<Self, String> {
         let file = File::open(path).map_err(|e| format!("open dataset {}: {e}", path.display()))?;
+        let mut reader = BufReader::new(file);
+        let csv_headers = if format == DatasetFormat::Csv {
+            let mut header = String::new();
+            if reader.read_line(&mut header).map_err(|e| format!("read CSV header: {e}"))? == 0 {
+                return Err("CSV dataset is empty".into());
+            }
+            Some(parse_csv_record(&header).iter().map(|v| v.to_ascii_lowercase()).collect())
+        } else {
+            None
+        };
         Ok(Self {
             path: path.to_path_buf(),
             format,
-            reader: BufReader::new(file),
+            reader,
             next_sample_index: 0,
             max_line_bytes: DEFAULT_MAX_LINE_BYTES,
+            csv_headers,
         })
     }
 
@@ -45,41 +57,90 @@ impl DatasetReader {
         Ok(())
     }
 
+    pub fn next_sample_index(&self) -> u64 { self.next_sample_index }
+
     pub fn current_offset(&mut self) -> Result<u64, String> {
         self.reader
             .stream_position()
             .map_err(|e| format!("dataset position: {e}"))
     }
 
-    pub fn next_sample_index(&self) -> u64 {
-        self.next_sample_index
+    pub fn next_sample(&mut self) -> AiResult<Option<RawSample>> {
+        loop {
+            let offset = self.current_offset().map_err(AiError::Dataset)?;
+            let mut line = String::new();
+            let read = self.reader.read_line(&mut line)?;
+            if read == 0 {
+                return Ok(None);
+            }
+            if matches!(self.format, DatasetFormat::Aicorpus)
+                && self.next_sample_index == 0
+                && line.trim_end().eq("# AiCorpus v1")
+            {
+                continue;
+            }
+            if read > self.max_line_bytes {
+                return Err(AiError::Dataset(format!(
+                    "sample {} exceeds max line size {} bytes",
+                    self.next_sample_index, self.max_line_bytes
+                )));
+            }
+            let text = match self.format {
+                DatasetFormat::Txt | DatasetFormat::Aicorpus => {
+                    line.trim_end_matches(&['\r', '\n'][..]).to_owned()
+                }
+                DatasetFormat::Jsonl | DatasetFormat::Json => parse_jsonl(&line)?,
+                DatasetFormat::Csv => self.parse_csv(&line)?,
+            };
+            let index = self.next_sample_index;
+            self.next_sample_index += 1;
+            return Ok(Some(RawSample {
+                text,
+                file_offset: offset,
+                sample_index: index,
+            }));
+        }
     }
 
-    pub fn next_sample(&mut self) -> AiResult<Option<RawSample>> {
-        let offset = self.current_offset().map_err(AiError::Dataset)?;
-        let mut line = String::new();
-        let read = self.reader.read_line(&mut line)?;
-        if read == 0 {
-            return Ok(None);
+    fn parse_csv(&mut self, line: &str) -> AiResult<String> {
+        if self.csv_headers.is_none() {
+            return Err(AiError::Dataset("CSV header has not been initialized".into()));
         }
-        if read > self.max_line_bytes {
-            return Err(AiError::Dataset(format!(
-                "sample {} exceeds max line size {} bytes",
-                self.next_sample_index, self.max_line_bytes
-            )));
+        let values = parse_csv_record(line);
+        let headers = self.csv_headers.as_ref().unwrap();
+        for key in ["text", "content", "body", "article", "document", "description"] {
+            if let Some(index) = headers.iter().position(|v| v == key) {
+                if let Some(value) = values.get(index) {
+                    if !value.trim().is_empty() { return Ok(value.clone()); }
+                }
+            }
         }
-        let index = self.next_sample_index;
-        self.next_sample_index += 1;
-        let text = match self.format {
-            DatasetFormat::Txt => line.trim_end_matches(&['\r', '\n'][..]).to_owned(),
-            DatasetFormat::Jsonl => parse_jsonl(&line)?,
-        };
-        Ok(Some(RawSample {
-            text,
-            file_offset: offset,
-            sample_index: index,
-        }))
+        for (a, b) in [("question", "answer"), ("prompt", "response"), ("user", "assistant")] {
+            if let (Some(ai), Some(bi)) = (headers.iter().position(|v| v == a), headers.iter().position(|v| v == b)) {
+                if let (Some(left), Some(right)) = (values.get(ai), values.get(bi)) {
+                    return Ok(format!("{left}\\n{right}"));
+                }
+            }
+        }
+        Err(AiError::Dataset("CSV row has no recognizable text fields".into()))
     }
+}
+
+fn parse_csv_record(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut chars = line.trim_end_matches(['\r', '\n']).chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' if quoted && chars.peek() == Some(&'"') => { current.push('"'); let _ = chars.next(); }
+            '"' => quoted = !quoted,
+            ',' if !quoted => { out.push(current.clone()); current.clear(); }
+            _ => current.push(ch),
+        }
+    }
+    out.push(current);
+    out
 }
 
 fn parse_jsonl(line: &str) -> AiResult<String> {

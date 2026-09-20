@@ -27,6 +27,7 @@ pub enum AppPage {
     Train,
     Model,
     Dataset,
+    DataDiscovery,
     Memory,
     Evaluation,
     Logs,
@@ -36,12 +37,13 @@ pub enum AppPage {
 }
 
 impl AppPage {
-    pub const ALL: [AppPage; 11] = [
+    pub const ALL: [AppPage; 12] = [
         Self::Home,
         Self::Chat,
         Self::Train,
         Self::Model,
         Self::Dataset,
+        Self::DataDiscovery,
         Self::Memory,
         Self::Evaluation,
         Self::Logs,
@@ -57,6 +59,7 @@ impl AppPage {
             Self::Train => "TRAIN",
             Self::Model => "MODEL",
             Self::Dataset => "DATASET",
+            Self::DataDiscovery => "DATA DISCOVERY",
             Self::Memory => "MEMORY",
             Self::Evaluation => "EVALUATION",
             Self::Logs => "LOGS",

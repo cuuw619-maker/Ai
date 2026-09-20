@@ -12,6 +12,7 @@ pub fn text(language: &str, key: &str) -> &'static str {
             "TRAIN" => "ОБУЧЕНИЕ",
             "MODEL" => "МОДЕЛЬ",
             "DATASET" => "ДАТАСЕТ",
+            "DATA DISCOVERY" => "ПОИСК ДАТАСЕТОВ",
             "MEMORY" => "ПАМЯТЬ",
             "EVALUATION" => "ОЦЕНКА",
             "LOGS" => "ЛОГИ",
@@ -40,12 +41,13 @@ pub fn text(language: &str, key: &str) -> &'static str {
     } else {
         match key {
             "HOME" | "CHAT" | "TRAIN" | "MODEL" | "DATASET" | "MEMORY" | "EVALUATION"
-            | "LOGS" | "SETTINGS" | "SYSTEM" | "WEB LEARNING" => match key {
+            | "LOGS" | "SETTINGS" | "SYSTEM" | "WEB LEARNING" | "DATA DISCOVERY" => match key {
                 "HOME" => "HOME",
                 "CHAT" => "CHAT",
                 "TRAIN" => "TRAIN",
                 "MODEL" => "MODEL",
                 "DATASET" => "DATASET",
+                "DATA DISCOVERY" => "DATA DISCOVERY",
                 "MEMORY" => "MEMORY",
                 "EVALUATION" => "EVALUATION",
                 "LOGS" => "LOGS",
@@ -71,6 +73,7 @@ pub fn page_title(page: AppPage, language: &str) -> &'static str {
             AppPage::Train => "Обучение",
             AppPage::Model => "Модель",
             AppPage::Dataset => "Датасет",
+            AppPage::DataDiscovery => "Поиск датасетов",
             AppPage::Memory => "Память",
             AppPage::Evaluation => "Оценка",
             AppPage::Logs => "Логи",
@@ -85,6 +88,7 @@ pub fn page_title(page: AppPage, language: &str) -> &'static str {
             AppPage::Train => "Training",
             AppPage::Model => "Model",
             AppPage::Dataset => "Dataset",
+            AppPage::DataDiscovery => "Data Discovery",
             AppPage::Memory => "Memory",
             AppPage::Evaluation => "Evaluation",
             AppPage::Logs => "Logs",

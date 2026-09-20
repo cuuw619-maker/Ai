@@ -1,13 +1,15 @@
-use super::core::{AppCore, AppPage, ModelInfo};
+use super::core::{AppCore, AppPage, DatasetInfo, ModelInfo};
 use crate::inference::GenerationConfig;
 use crate::training::TrainingStatus;
 use crate::web_learning::WebStatus;
+use crate::dataset::DatasetFormat;
+use crate::dataset_discovery::{DatasetCandidate, DatasetDiscovery, DatasetEvent, DatasetSearchFilters, DatasetSourceKind, DatasetState};
 use super::localization;
 use eframe::egui::{
     self, Align, Align2, Color32, FontId, Layout, RichText, Stroke, StrokeKind, TextStyle, Ui, Vec2,
 };
 use std::collections::VecDeque;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct AiApplication {
     pub core: AppCore,
@@ -30,6 +32,22 @@ pub struct AiApplication {
     confirm_clear_logs: bool,
     selected_log: String,
     last_finalized_run: String,
+    dataset_discovery: Option<DatasetDiscovery>,
+    dd_results: Vec<DatasetCandidate>,
+    dd_query: String,
+    dd_language: String,
+    dd_topic: String,
+    dd_kind: String,
+    dd_size: String,
+    dd_min_quality: f32,
+    dd_searching_source: Option<String>,
+    dd_search_active: bool,
+    dd_search_message: String,
+    dd_progress: Option<(String, u64, Option<u64>)>,
+    dd_preview: Option<(String, Vec<String>)>,
+    dd_pending_approval: Option<(String, u64, u64)>,
+    last_rendered_page: AppPage,
+    page_transition_until: Instant,
 }
 
 impl AiApplication {
@@ -46,6 +64,8 @@ impl AiApplication {
         }
 
         let selected_log = "APP LOG".to_string();
+        let initial_page = core.page;
+        let dataset_discovery = if core.safe_mode { None } else { DatasetDiscovery::spawn(&core.root).ok() };
         let default_vocab = core
             .tokenizer_path
             .as_ref()
@@ -73,6 +93,22 @@ impl AiApplication {
             confirm_clear_logs: false,
             selected_log,
             last_finalized_run: String::new(),
+            dataset_discovery,
+            dd_results: Vec::new(),
+            dd_query: "general text".into(),
+            dd_language: "English".into(),
+            dd_topic: "General text".into(),
+            dd_kind: "Text".into(),
+            dd_size: "Small".into(),
+            dd_min_quality: 0.60,
+            dd_searching_source: None,
+            dd_search_active: false,
+            dd_search_message: String::new(),
+            dd_progress: None,
+            dd_preview: None,
+            dd_pending_approval: None,
+            last_rendered_page: initial_page,
+            page_transition_until: Instant::now(),
         }
     }
 
@@ -754,6 +790,143 @@ impl AiApplication {
         });
     }
 
+    fn poll_dataset_discovery(&mut self) {
+        let Some(manager) = &self.dataset_discovery else { return; };
+        let mut events = Vec::new();
+        while let Ok(event) = manager.events.try_recv() { events.push(event); }
+        for event in events {
+            match event {
+                DatasetEvent::SearchStarted => { self.dd_results.clear(); self.dd_search_active = true; self.dd_search_message = "Searching sources…".into(); self.dd_searching_source = None; }
+                DatasetEvent::SourceSearching(source) => { self.dd_searching_source = Some(source.label().into()); self.dd_search_message = format!("{} — searching", source.label()); }
+                DatasetEvent::Candidate(candidate) => self.upsert_dataset_candidate(candidate),
+                DatasetEvent::SearchCompleted(count) => { self.dd_search_active = false; self.dd_searching_source = None; self.dd_search_message = format!("Found {count} datasets."); }
+                DatasetEvent::DownloadProgress { id, downloaded_bytes, total_bytes } => self.dd_progress = Some((id, downloaded_bytes, total_bytes)),
+                DatasetEvent::DownloadNeedsApproval { id, size_bytes, limit_bytes } => self.dd_pending_approval = Some((id, size_bytes, limit_bytes)),
+                DatasetEvent::Preview { id, samples } => self.dd_preview = Some((id, samples)),
+                DatasetEvent::Ready(candidate) => self.upsert_dataset_candidate(candidate),
+                DatasetEvent::UsedForTraining(candidate) => { self.upsert_dataset_candidate(candidate.clone()); self.select_discovered_dataset_for_training(&candidate); }
+                DatasetEvent::Removed(id) => self.dd_results.retain(|v| v.id != id),
+                DatasetEvent::Error { id, message } => {
+                    if let Some(id) = id { if let Some(v) = self.dd_results.iter_mut().find(|v| v.id == id) { v.state = DatasetState::Failed; v.error = Some(message.clone()); } }
+                    self.dd_search_active = false; self.core.logger.app(format!("Dataset Discovery error: {message}")); self.core.last_error = Some(message);
+                }
+            }
+        }
+    }
+
+    fn upsert_dataset_candidate(&mut self, candidate: DatasetCandidate) {
+        if let Some(existing) = self.dd_results.iter_mut().find(|v| v.id == candidate.id) { *existing = candidate; } else { self.dd_results.push(candidate); }
+        self.dd_results.sort_by(|a, b| b.small_model_recommended.cmp(&a.small_model_recommended).then_with(|| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase())));
+    }
+
+    fn discover_search(&self) -> DatasetSearchFilters { DatasetSearchFilters { query: self.dd_query.trim().into(), language: self.dd_language.clone(), topic: self.dd_topic.clone(), kind: self.dd_kind.clone(), size: self.dd_size.clone(), min_quality: self.dd_min_quality } }
+
+    fn queue_discovered_download(&mut self, id: &str, allow_large: bool) {
+        let Some(manager) = &self.dataset_discovery else { self.core.last_error = Some("Dataset Discovery is unavailable.".into()); return; };
+        if let Err(error) = manager.download(id, allow_large) { self.core.last_error = Some(error); }
+    }
+
+    fn select_discovered_dataset_for_training(&mut self, candidate: &DatasetCandidate) {
+        let Some(path) = candidate.prepared_path.clone() else { self.core.last_error = Some("Dataset is not prepared yet.".into()); return; };
+        self.core.config.datasets = vec![path.display().to_string()];
+        self.core.dataset = Some(DatasetInfo { path, format: DatasetFormat::Aicorpus, metadata_id: Some(candidate.id.clone()), report: None, error: None });
+        self.core.save_config(); self.core.validate_dataset(); self.core.log_event(format!("Dataset selected for training: {}", candidate.name));
+    }
+    fn data_discovery(&mut self, ui: &mut Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("SEARCH DATASETS").strong());
+            ui.add_sized([260.0, 28.0], egui::TextEdit::singleline(&mut self.dd_query).hint_text("topic, task, domain…"));
+            egui::ComboBox::from_id_salt("dd-language").selected_text(&self.dd_language).show_ui(ui, |ui| {
+                for value in ["English", "Russian", "Ukrainian", "All"] { ui.selectable_value(&mut self.dd_language, value.into(), value); }
+            });
+            egui::ComboBox::from_id_salt("dd-topic").selected_text(&self.dd_topic).show_ui(ui, |ui| {
+                for value in ["General text", "Knowledge", "Technology", "Science", "Conversation"] { ui.selectable_value(&mut self.dd_topic, value.into(), value); }
+            });
+            egui::ComboBox::from_id_salt("dd-kind").selected_text(&self.dd_kind).show_ui(ui, |ui| {
+                for value in ["Text", "Conversation", "Knowledge", "Any"] { ui.selectable_value(&mut self.dd_kind, value.into(), value); }
+            });
+            egui::ComboBox::from_id_salt("dd-size").selected_text(&self.dd_size).show_ui(ui, |ui| {
+                for value in ["Small", "Medium", "Large", "Any"] { ui.selectable_value(&mut self.dd_size, value.into(), value); }
+            });
+        });
+        ui.horizontal(|ui| {
+            let enabled = !self.core.safe_mode && self.dataset_discovery.is_some() && !self.dd_search_active;
+            if ui.add_enabled(enabled, egui::Button::new("SEARCH DATASETS")).clicked() {
+                if let Some(manager) = &self.dataset_discovery { if let Err(e) = manager.search(self.discover_search()) { self.core.last_error = Some(e); } }
+            }
+            if ui.add_enabled(enabled, egui::Button::new("AUTO DISCOVER")).clicked() {
+                if let Some(manager) = &self.dataset_discovery { if let Err(e) = manager.search(self.discover_search()) { self.core.last_error = Some(e); } }
+            }
+            ui.add(egui::Slider::new(&mut self.dd_min_quality, 0.0..=1.0).text("minimum quality"));
+            ui.label(if self.dd_search_message.is_empty() { "Ready." } else { &self.dd_search_message });
+        });
+        card(ui, |ui| {
+            ui.label(RichText::new("PUBLIC SOURCES").strong());
+            for source in [DatasetSourceKind::HuggingFace, DatasetSourceKind::GitHub, DatasetSourceKind::Wikimedia] {
+                let status = if self.dd_searching_source.as_deref() == Some(source.label()) { "SEARCHING" } else if self.dd_search_active { "QUEUED" } else { "READY" };
+                status_line(ui, source.label(), status);
+            }
+        });
+        if let Some((id, downloaded, total)) = self.dd_progress.clone() {
+            card(ui, |ui| {
+                ui.label(RichText::new("DOWNLOAD QUEUE").strong());
+                let name = self.dd_results.iter().find(|v| v.id == id).map(|v| v.name.as_str()).unwrap_or(id.as_str());
+                ui.label(name);
+                if let Some(total) = total.filter(|v| *v > 0) {
+                    ui.add(egui::ProgressBar::new(downloaded as f32 / total as f32).text(format!("{} / {}", AppCore::format_mb(downloaded), AppCore::format_mb(total))));
+                } else { ui.label(format!("Downloaded {} • working…", AppCore::format_mb(downloaded))); }
+            });
+        }
+        ui.add_space(8.0);
+        ui.label(RichText::new(format!("DATASET RESULTS  •  {}", self.dd_results.len())).strong());
+        let results = self.dd_results.clone();
+        for candidate in results {
+            card(ui, |ui| {
+                ui.horizontal(|ui| { ui.label(RichText::new(&candidate.name).size(17.0).strong()); status_pill(ui, candidate.state.label()); if candidate.small_model_recommended { ui.label(RichText::new("RECOMMENDED").small()); } });
+                ui.label(candidate.description.clone());
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(format!("{}  •  {}  •  {}  •  {}", candidate.source.label(), candidate.language, candidate.format, candidate.size_label)).small());
+                    ui.label(RichText::new(format!("quality {:.0}%  •  {}", candidate.quality_score * 100.0, candidate.license)).small());
+                });
+                ui.label(RichText::new(format!("Author: {}", candidate.author)).small());
+                ui.label(RichText::new(candidate.source_url.clone()).small());
+                if let Some(error) = &candidate.error { ui.colored_label(Color32::RED, error); }
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("PREVIEW").clicked() { if let Some(manager)=&self.dataset_discovery { let _=manager.preview(&candidate.id); } }
+                    if ui.button("DOWNLOAD").clicked() { self.queue_discovered_download(&candidate.id, false); }
+                    if ui.button("ADD TO QUEUE").clicked() { self.queue_discovered_download(&candidate.id, false); }
+                    if candidate.state == DatasetState::Downloaded && ui.button("PREPARE").clicked() { if let Some(manager)=&self.dataset_discovery { let _=manager.prepare(&candidate.id); } }
+                    if matches!(candidate.state, DatasetState::Ready | DatasetState::UsedInTraining) && ui.button("USE FOR TRAINING").clicked() { if let Some(manager)=&self.dataset_discovery { let _=manager.use_for_training(&candidate.id); } }
+                    if ui.button("REMOVE").clicked() { if let Some(manager)=&self.dataset_discovery { let _=manager.remove(&candidate.id); } }
+                });
+            });
+        }
+        card(ui, |ui| {
+            ui.label(RichText::new("DATA FLOW").strong());
+            ui.label("Internet → Dataset Discovery → Download Queue → Validate → Prepare → .aicorpus → Training");
+            ui.label("Downloads are sequential. Only public HTTP(S) data files are accepted; downloaded content is never executed.");
+        });
+        if let Some((id, samples)) = self.dd_preview.clone() {
+            egui::Window::new("Dataset Preview").collapsible(false).resizable(true).default_size([720.0, 420.0]).show(ui.ctx(), |ui| {
+                ui.label(format!("Preview: {}", self.dd_results.iter().find(|v| v.id == id).map(|v| v.name.as_str()).unwrap_or(id.as_str())));
+                for (i, sample) in samples.iter().enumerate() { card(ui, |ui| { ui.label(RichText::new(format!("Sample {}", i+1)).small().strong()); ui.label(sample); }); }
+                if samples.is_empty() { ui.label("No preview records were returned."); }
+                if ui.button("CLOSE").clicked() { self.dd_preview=None; }
+            });
+        }
+        if let Some((id, size, limit)) = self.dd_pending_approval.clone() {
+            egui::Window::new("Large dataset approval").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0.0,0.0]).show(ui.ctx(), |ui| {
+                let name = self.dd_results.iter().find(|v| v.id == id).map(|v| v.name.as_str()).unwrap_or(id.as_str());
+                ui.label(format!("{} requires {} of disk/network transfer.", name, AppCore::format_mb(size)));
+                ui.label(format!("Pre-approval threshold: {}.", AppCore::format_mb(limit)));
+                ui.label("No bytes are downloaded until you explicitly approve this transfer.");
+                ui.horizontal(|ui| {
+                    if ui.button("DOWNLOAD ANYWAY").clicked() { self.queue_discovered_download(&id, true); self.dd_pending_approval=None; }
+                    if ui.button("CANCEL").clicked() { self.dd_pending_approval=None; }
+                });
+            });
+        }
+    }
     fn dataset(&mut self, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
             if ui.button("ADD DATASET").clicked() && !self.core.safe_mode {
@@ -1708,6 +1881,11 @@ impl AiApplication {
 impl eframe::App for AiApplication {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.core.refresh();
+        if self.last_rendered_page != self.core.page {
+            self.last_rendered_page = self.core.page;
+            self.page_transition_until = Instant::now() + Duration::from_millis(180);
+        }
+        self.poll_dataset_discovery();
         self.core
             .update_training_session_marker(&mut self.last_finalized_run);
 
@@ -1715,6 +1893,8 @@ impl eframe::App for AiApplication {
         self.nav(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            let remaining = self.page_transition_until.saturating_duration_since(Instant::now());
+            if remaining > Duration::ZERO { ui.add_space((remaining.as_secs_f32() / 0.18).clamp(0.0, 1.0) * 7.0); }
             self.header(ui);
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
@@ -1724,6 +1904,7 @@ impl eframe::App for AiApplication {
                     AppPage::Train => self.train(ui),
                     AppPage::Model => self.model(ui),
                     AppPage::Dataset => self.dataset(ui),
+                    AppPage::DataDiscovery => self.data_discovery(ui),
                     AppPage::Memory => self.memory(ui),
                     AppPage::Evaluation => self.evaluation(ui),
                     AppPage::Logs => self.logs(ui),
@@ -1763,8 +1944,8 @@ impl eframe::App for AiApplication {
             });
         }
 
-        let repaint = if self.core.is_trainer_running() {
-            100
+        let repaint = if self.core.is_trainer_running() || Instant::now() < self.page_transition_until {
+            50
         } else {
             self.core.config.ui_update_ms.clamp(250, 1000)
         };
