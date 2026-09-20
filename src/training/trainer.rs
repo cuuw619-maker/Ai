@@ -1,7 +1,7 @@
 use super::checkpoint::{Checkpoint, CheckpointSave};
 use super::config::TrainingConfig;
 use super::evaluation::Evaluator;
-use super::events::{TrainingCommand, TrainingEvent, TrainingProgress};
+use super::events::{LayerTrainingStats, ModelTrainingSnapshot, TrainingCommand, TrainingEvent, TrainingProgress};
 use super::state::{TrainingState, TrainingStatus};
 use crate::dataset::{
     dataset_metadata, DatasetCursor, DatasetFormat, DatasetReader, TrainingStream,
@@ -560,8 +560,59 @@ impl Trainer {
         self.model.scale_gradients(scale);
         let (norm, clipped) = self.model.clip_grad_norm(self.config.max_grad_norm);
         let loss = (*accumulated_loss / *accumulation_count as f64) as f32;
-        self.optimizer.step(self.model.parameters_mut());
+        let update = self.optimizer.step_with_stats(self.model.parameters_mut());
         self.state.step += 1;
+
+        let layers = self
+            .model
+            .cells
+            .iter()
+            .enumerate()
+            .map(|(layer, cell)| {
+                let weight_sum = [
+                    &cell.w_keep, &cell.u_keep, &cell.b_keep,
+                    &cell.w_write, &cell.u_write, &cell.b_write,
+                    &cell.w_candidate, &cell.u_candidate, &cell.b_candidate,
+                    &cell.w_out, &cell.b_out,
+                ]
+                .iter()
+                .flat_map(|p| p.data.iter())
+                .map(|v| (*v as f64) * (*v as f64))
+                .sum::<f64>();
+                let gradient_sum = [
+                    &cell.w_keep, &cell.u_keep, &cell.b_keep,
+                    &cell.w_write, &cell.u_write, &cell.b_write,
+                    &cell.w_candidate, &cell.u_candidate, &cell.b_candidate,
+                    &cell.w_out, &cell.b_out,
+                ]
+                .iter()
+                .flat_map(|p| p.grad.iter())
+                .map(|v| (*v as f64) * (*v as f64))
+                .sum::<f64>();
+                let memory_sum = memory
+                    .get(layer)
+                    .into_iter()
+                    .flat_map(|values| values.iter())
+                    .map(|v| (*v as f64) * (*v as f64))
+                    .sum::<f64>();
+                LayerTrainingStats {
+                    layer,
+                    weight_norm: weight_sum.sqrt() as f32,
+                    gradient_norm: gradient_sum.sqrt() as f32,
+                    memory_norm: memory_sum.sqrt() as f32,
+                }
+            })
+            .collect::<Vec<_>>();
+        let snapshot = ModelTrainingSnapshot {
+            parameter_count: self.model.parameter_count(),
+            checksum: self.model.weights_checksum(),
+            gradient_magnitude: norm,
+            updated_parameters: update.updated_parameters,
+            average_update: update.average_absolute_update,
+            max_update: update.max_absolute_update,
+            layers,
+        };
+        let _ = events.send(TrainingEvent::ModelSnapshot(snapshot));
         let elapsed = ((now_ms().saturating_sub(started)).max(1) as f64) / 1000.0;
         let tps = self.state.tokens_this_run as f64 / elapsed;
         let progress = self.progress(loss, tps, norm, clipped);
