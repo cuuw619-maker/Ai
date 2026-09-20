@@ -1,4 +1,4 @@
-use super::config::{AppConfig, TrainingUiConfig};
+use super::config::AppConfig;
 use super::logging::{CrashContext, Logger, RuntimeGuard};
 use super::resources::{ResourceMonitor, ResourceSnapshot};
 use crate::architecture::AiNet;
@@ -305,7 +305,7 @@ impl AppCore {
             core.wizard_open = true;
         }
         core.refresh_resources();
-        if !core.previous_crash {
+        if !core.previous_crash && !core.safe_mode {
             core.refresh_model();
         }
         core.refresh_tokenizer();
