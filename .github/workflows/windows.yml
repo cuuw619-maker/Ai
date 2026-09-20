@@ -29,7 +29,7 @@ jobs:
         run: |
           cargo fmt --all
           Compress-Archive -Path src,tests,Cargo.toml -DestinationPath fmt-source.zip -Force
-          git diff -- src/model.rs src/training/evaluation.rs src/training/mod.rs src/training/trainer.rs src/training/checkpoint.rs src/main.rs
+          git diff -- src/model.rs src/architecture/ainet.rs src/architecture/mod.rs src/architecture/aicell.rs src/training/evaluation.rs src/training/mod.rs src/training/trainer.rs src/training/checkpoint.rs src/main.rs
 
       - name: Upload normalized sources
         uses: actions/upload-artifact@v4
