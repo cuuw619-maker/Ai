@@ -32,6 +32,10 @@ impl TrainingWorker {
             .map_err(|e| format!("training command send: {e}"))
     }
 
+    pub fn is_finished(&self) -> bool {
+        self.join.as_ref().is_none_or(std::thread::JoinHandle::is_finished)
+    }
+
     pub fn join(&mut self) {
         if let Some(handle) = self.join.take() {
             let _ = handle.join();
