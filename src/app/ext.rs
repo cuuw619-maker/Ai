@@ -130,7 +130,7 @@ impl AppCore {
             return;
         };
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("Ai model", ["aimodel"])
+            .add_filter("Ai model", &["aimodel"])
             .set_file_name(
                 source
                     .file_name()
