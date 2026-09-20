@@ -988,7 +988,9 @@ impl AiApplication {
                         }
                         if ui.button("SAFE MODE").clicked() {
                             self.core.safe_mode = true;
+                            self.core.config.safe_mode = true;
                             self.core.previous_crash = false;
+                            self.core.save_config();
                             self.core.worker = None;
                             self.core.model = None;
                             self.core.log_event("Safe mode enabled.");
