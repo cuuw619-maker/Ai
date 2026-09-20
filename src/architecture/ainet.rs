@@ -22,6 +22,9 @@ use crate::neural::Parameter;
 use std::fs;
 use std::path::Path;
 
+const ANR_BLOCK_SIZE: usize = 16;
+const ANR_DEFAULT_TOP_K: usize = 6;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ModelMemoryReport {
     pub embedding_bytes: usize,
@@ -51,6 +54,17 @@ impl ModelMemoryReport {
             + self.temporary_bytes
             + self.dataset_buffer_bytes
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RoutingStats {
+    pub active_blocks: usize,
+    pub total_blocks: usize,
+    pub active_channels: usize,
+    pub total_channels: usize,
+    pub skipped_channels: usize,
+    pub active_ratio: f32,
+    pub entropy: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -94,6 +108,10 @@ struct CellCache {
     candidate: Vec<f32>,
     new_memory: Vec<f32>,
     output_activation: Vec<f32>,
+    cell_activation: Vec<f32>,
+    routing_probs: Vec<f32>,
+    routing_gate: Vec<f32>,
+    routing_active: Vec<bool>,
 }
 
 pub struct AiCell {
@@ -109,6 +127,8 @@ pub struct AiCell {
     pub b_candidate: Parameter,
     pub w_out: Parameter,
     pub b_out: Parameter,
+    pub router_w: Parameter,
+    pub router_b: Parameter,
 }
 
 impl AiCell {
@@ -129,50 +149,109 @@ impl AiCell {
             b_candidate: Parameter::zeros(format!("{prefix}.b_candidate"), dim),
             w_out: matrix(format!("{prefix}.W_out"), dim, dim, rng),
             b_out: Parameter::zeros(format!("{prefix}.b_out"), dim),
+            router_w: Parameter::new(
+                format!("{prefix}.router.weight"),
+                xavier_uniform(route_block_count(dim), dim, rng),
+            ),
+            router_b: Parameter::zeros(
+                format!("{prefix}.router.bias"),
+                route_block_count(dim),
+            ),
         }
     }
 
+    fn total_blocks(&self) -> usize {
+        route_block_count(self.dim)
+    }
+
+    fn top_k(&self) -> usize {
+        ANR_DEFAULT_TOP_K.min(self.total_blocks()).max(1)
+    }
+
     fn forward(&self, x: &[f32], memory: &[f32]) -> CellCache {
-        let keep_z = affine(
-            &self.w_keep.data,
-            &self.u_keep.data,
-            &self.b_keep.data,
-            x,
-            memory,
-            self.dim,
-        );
-        let keep: Vec<f32> = keep_z.into_iter().map(sigmoid).collect();
+        self.forward_internal(x, memory, false)
+    }
 
-        let write_z = affine(
-            &self.w_write.data,
-            &self.u_write.data,
-            &self.b_write.data,
-            x,
-            memory,
-            self.dim,
-        );
-        let write: Vec<f32> = write_z.into_iter().map(sigmoid).collect();
+    fn forward_inference(&self, x: &[f32], memory: &[f32]) -> CellCache {
+        self.forward_internal(x, memory, true)
+    }
 
-        let kept_memory: Vec<f32> = memory.iter().zip(&keep).map(|(m, k)| m * k).collect();
-        let candidate_z = affine(
-            &self.w_candidate.data,
-            &self.u_candidate.data,
-            &self.b_candidate.data,
-            x,
-            &kept_memory,
-            self.dim,
-        );
-        let candidate: Vec<f32> = candidate_z.into_iter().map(f32::tanh).collect();
+    fn forward_internal(&self, x: &[f32], memory: &[f32], hard_route: bool) -> CellCache {
+        let total_blocks = self.total_blocks();
+        let mut scores = matvec(&self.router_w.data, x, total_blocks);
+        for (score, bias) in scores.iter_mut().zip(&self.router_b.data) {
+            *score += *bias;
+        }
+        let probs = stable_softmax(&scores);
+        let mut active = vec![true; total_blocks];
+        let mut gate = vec![0.0; total_blocks];
+        if hard_route {
+            active.fill(false);
+            let mut order: Vec<usize> = (0..total_blocks).collect();
+            order.sort_by(|a, b| probs[*b].partial_cmp(&probs[*a]).unwrap_or(std::cmp::Ordering::Equal));
+            let active_blocks = self.top_k();
+            let hard_gate = total_blocks as f32 / active_blocks as f32;
+            for block in order.into_iter().take(active_blocks) {
+                active[block] = true;
+                gate[block] = hard_gate;
+            }
+        } else {
+            for block in 0..total_blocks {
+                gate[block] = probs[block] * total_blocks as f32;
+            }
+        }
 
-        let new_memory: Vec<f32> = memory
-            .iter()
-            .zip(&write)
-            .zip(&candidate)
-            .map(|((m, w), c)| m * (1.0 - w) + c * w)
-            .collect();
+        let mut channel_gate = vec![0.0; self.dim];
+        for block in 0..total_blocks {
+            let start = block * ANR_BLOCK_SIZE;
+            let end = (start + ANR_BLOCK_SIZE).min(self.dim);
+            for channel in start..end {
+                channel_gate[channel] = gate[block];
+            }
+        }
 
-        let output_z = matvec(&self.w_out.data, &new_memory, self.dim);
-        let output_activation: Vec<f32> = output_z.iter().map(|v| v.tanh()).collect();
+        let mut keep = vec![1.0; self.dim];
+        let mut write = vec![0.0; self.dim];
+        let mut candidate = vec![0.0; self.dim];
+        if hard_route {
+            affine_selected(
+                &self.w_keep.data, &self.u_keep.data, &self.b_keep.data,
+                x, memory, self.dim, &active, ANR_BLOCK_SIZE, &mut keep, true
+            );
+            affine_selected(
+                &self.w_write.data, &self.u_write.data, &self.b_write.data,
+                x, memory, self.dim, &active, ANR_BLOCK_SIZE, &mut write, true
+            );
+            let kept_memory: Vec<f32> = memory.iter().zip(&keep).map(|(m, k)| m * k).collect();
+            affine_selected(
+                &self.w_candidate.data, &self.u_candidate.data, &self.b_candidate.data,
+                x, &kept_memory, self.dim, &active, ANR_BLOCK_SIZE, &mut candidate, false
+            );
+        } else {
+            let keep_z = affine(&self.w_keep.data, &self.u_keep.data, &self.b_keep.data, x, memory, self.dim);
+            keep = keep_z.into_iter().map(sigmoid).collect();
+            let write_z = affine(&self.w_write.data, &self.u_write.data, &self.b_write.data, x, memory, self.dim);
+            write = write_z.into_iter().map(sigmoid).collect();
+            let kept_memory: Vec<f32> = memory.iter().zip(&keep).map(|(m, k)| m * k).collect();
+            let candidate_z = affine(&self.w_candidate.data, &self.u_candidate.data, &self.b_candidate.data, x, &kept_memory, self.dim);
+            candidate = candidate_z.into_iter().map(f32::tanh).collect();
+        }
+
+        let new_memory: Vec<f32> = memory.iter().zip(&write).zip(&candidate)
+            .map(|((m, w), c)| m * (1.0 - w) + c * w).collect();
+
+        let mut cell_activation = vec![0.0; self.dim];
+        if hard_route {
+            matvec_selected(&self.w_out.data, &new_memory, self.dim, &active, ANR_BLOCK_SIZE, &mut cell_activation);
+        } else {
+            let output_z = matvec(&self.w_out.data, &new_memory, self.dim);
+            cell_activation.copy_from_slice(&output_z);
+        }
+        for value in &mut cell_activation {
+            *value = value.tanh();
+        }
+        let output_activation = cell_activation.iter().zip(&channel_gate)
+            .map(|(value, gate)| value * gate).collect();
 
         CellCache {
             x: x.to_vec(),
@@ -182,6 +261,10 @@ impl AiCell {
             candidate,
             new_memory,
             output_activation,
+            cell_activation,
+            routing_probs: probs,
+            routing_gate: channel_gate,
+            routing_active: active,
         }
     }
 
@@ -195,10 +278,38 @@ impl AiCell {
         let mut dx = grad_output.to_vec();
         let mut dnew = grad_memory_future.to_vec();
 
+        // ANR soft-routing gradient: output = tanh(cell) * gate.
+        // The gate is a scaled softmax over fixed-size channel blocks.
+        let mut d_scores = vec![0.0; cache.routing_probs.len()];
+        let mut weighted_gate_gradient = 0.0f32;
+        for i in 0..d {
+            let block = i / ANR_BLOCK_SIZE;
+            let d_gate = grad_output[i] * cache.cell_activation[i];
+            weighted_gate_gradient += d_gate * cache.routing_probs[block];
+        }
+        for block in 0..cache.routing_probs.len() {
+            let mut d_gate = 0.0f32;
+            let start = block * ANR_BLOCK_SIZE;
+            let end = (start + ANR_BLOCK_SIZE).min(d);
+            for i in start..end {
+                d_gate += grad_output[i] * cache.cell_activation[i];
+            }
+            d_scores[block] = cache.routing_probs[block] * (d_gate * cache.routing_probs.len() as f32 - weighted_gate_gradient * cache.routing_probs.len() as f32);
+        }
+        for block in 0..cache.routing_probs.len() {
+            let row = &self.router_w.data[block * d..(block + 1) * d];
+            for i in 0..d {
+                dx[i] += row[i] * d_scores[block];
+                self.router_w.grad[block * d + i] += d_scores[block] * cache.x[i];
+            }
+            self.router_b.grad[block] += d_scores[block];
+        }
+
         let mut dz_out = vec![0.0; d];
         for i in 0..d {
+            let gate = cache.routing_gate[i];
             dz_out[i] =
-                grad_output[i] * (1.0 - cache.output_activation[i] * cache.output_activation[i]);
+                grad_output[i] * gate * (1.0 - cache.cell_activation[i] * cache.cell_activation[i]);
         }
         outer_add(&mut self.w_out.grad, &dz_out, &cache.new_memory, d, d);
         for i in 0..d {
@@ -290,6 +401,8 @@ impl AiCell {
             &mut self.b_candidate,
             &mut self.w_out,
             &mut self.b_out,
+            &mut self.router_w,
+            &mut self.router_b,
         ]
     }
 
@@ -305,6 +418,8 @@ impl AiCell {
             + self.b_candidate.len()
             + self.w_out.len()
             + self.b_out.len()
+            + self.router_w.len()
+            + self.router_b.len()
     }
 }
 
@@ -318,6 +433,7 @@ pub struct AiNet {
     pub output_b: Parameter,
     runtime_memory: Vec<Vec<f32>>,
     last_activations: Vec<Vec<f32>>,
+    last_routing: Vec<RoutingStats>,
 }
 
 impl AiNet {
@@ -354,6 +470,7 @@ impl AiNet {
         let output_b = Parameter::zeros("output.bias", config.vocab_size);
         let runtime_memory = vec![vec![0.0; config.hidden_dim]; config.layer_count];
         let last_activations = vec![vec![0.0; config.hidden_dim]; config.layer_count];
+        let last_routing = vec![RoutingStats::default(); config.layer_count];
         Ok(Self {
             config,
             embedding,
@@ -364,6 +481,7 @@ impl AiNet {
             output_b,
             runtime_memory,
             last_activations,
+            last_routing,
         })
     }
 
@@ -486,6 +604,7 @@ impl AiNet {
             for (layer, cell) in self.cells.iter().enumerate() {
                 let cache = cell.forward(&x, &memory[layer]);
                 self.last_activations[layer] = cache.output_activation.clone();
+                self.last_routing[layer] = routing_stats_from_probs(&cache.routing_probs, self.config.hidden_dim, cell.top_k());
                 memory[layer] = cache.new_memory.clone();
                 x = cache
                     .x
@@ -640,6 +759,10 @@ impl AiNet {
             }
         }
         fnv1a64(&bytes)
+    }
+
+    pub fn routing_stats(&self) -> Vec<RoutingStats> {
+        self.last_routing.clone()
     }
 
     pub fn layer_activation_stats(&self) -> Vec<(f32, f32, f32)> {
@@ -823,7 +946,9 @@ impl AiNet {
         let mut x = self.project_input(&embedding)?;
         for layer in 0..self.config.layer_count {
             let cell = &self.cells[layer];
-            let cache = cell.forward(&x, &self.runtime_memory[layer]);
+            let cache = cell.forward_inference(&x, &self.runtime_memory[layer]);
+            self.last_routing[layer] = routing_stats_from_hard(&cache.routing_active, self.config.hidden_dim, &cache.routing_probs);
+            self.last_activations[layer] = cache.output_activation.clone();
             self.runtime_memory[layer] = cache.new_memory;
             x = x
                 .iter()
@@ -964,10 +1089,12 @@ impl AiNet {
         let mut model = AiNet::new(config)?;
         let count = r.u64()? as usize;
         let mut expected = model.parameter_snapshot();
-        if expected.len() != count {
+        let legacy_count = expected.len().saturating_sub(model.config.layer_count * 2);
+        let legacy_router_payload = count == legacy_count;
+        if count != expected.len() && !legacy_router_payload {
             return Err("parameter count mismatch".into());
         }
-        for (expected_name, expected_data) in &mut expected {
+        for (expected_name, expected_data) in expected.iter_mut().take(count) {
             let name = r.str()?;
             if &name != expected_name {
                 return Err(format!("parameter order/name mismatch: {name}"));
@@ -995,6 +1122,9 @@ impl AiNet {
             param.data.copy_from_slice(&data);
             param.grad.fill(0.0);
         }
+        if legacy_router_payload {
+            zero_router_parameters(&mut model);
+        }
         Ok(model)
     }
 
@@ -1020,10 +1150,12 @@ impl AiNet {
         let mut model = AiNet::new(config)?;
         let count = r.u64()? as usize;
         let mut expected = model.parameter_snapshot();
-        if expected.len() != count {
+        let legacy_count = expected.len().saturating_sub(model.config.layer_count * 2);
+        let legacy_router_payload = count == legacy_count;
+        if count != expected.len() && !legacy_router_payload {
             return Err("parameter count mismatch".into());
         }
-        for (expected_name, expected_data) in &mut expected {
+        for (expected_name, expected_data) in expected.iter_mut().take(count) {
             let name = r.str()?;
             if &name != expected_name {
                 return Err(format!("parameter order/name mismatch: {name}"));
@@ -1043,6 +1175,9 @@ impl AiNet {
         for (param, (_, data)) in params.iter_mut().zip(expected) {
             param.data.copy_from_slice(&data);
             param.grad.fill(0.0);
+        }
+        if legacy_router_payload {
+            zero_router_parameters(&mut model);
         }
         Ok(model)
     }
@@ -1076,6 +1211,10 @@ impl AiNet {
         }
         result.push((self.output_w.name.clone(), self.output_w.data.clone()));
         result.push((self.output_b.name.clone(), self.output_b.data.clone()));
+        for cell in &self.cells {
+            result.push((cell.router_w.name.clone(), cell.router_w.data.clone()));
+            result.push((cell.router_b.name.clone(), cell.router_b.data.clone()));
+        }
         result
     }
 }
@@ -1110,6 +1249,119 @@ fn atomic_save_with_previous(path: &Path, bytes: &[u8]) -> Result<(), String> {
             let _ = fs::remove_file(&temp);
             Err(format!("install model atomically: {e}"))
         }
+    }
+}
+
+fn route_block_count(dim: usize) -> usize {
+    dim.div_ceil(ANR_BLOCK_SIZE).max(1)
+}
+
+fn routing_entropy(probs: &[f32]) -> f32 {
+    if probs.len() <= 1 {
+        return 0.0;
+    }
+    let entropy = probs
+        .iter()
+        .filter(|p| **p > 0.0)
+        .map(|p| -*p * p.ln())
+        .sum::<f32>();
+    (entropy / (probs.len() as f32).ln()).clamp(0.0, 1.0)
+}
+
+fn routing_stats_from_probs(probs: &[f32], channels: usize, top_k: usize) -> RoutingStats {
+    let total_blocks = probs.len();
+    let active_blocks = top_k.min(total_blocks).max(1);
+    let block_size = ANR_BLOCK_SIZE;
+    let mut active_channels = 0usize;
+    for block in 0..active_blocks {
+        let _ = block;
+        active_channels += block_size.min(channels.saturating_sub(block * block_size));
+    }
+    RoutingStats {
+        active_blocks,
+        total_blocks,
+        active_channels,
+        total_channels: channels,
+        skipped_channels: channels.saturating_sub(active_channels),
+        active_ratio: active_channels as f32 / channels.max(1) as f32,
+        entropy: routing_entropy(probs),
+    }
+}
+
+fn routing_stats_from_hard(active: &[bool], channels: usize, probs: &[f32]) -> RoutingStats {
+    let active_blocks = active.iter().filter(|value| **value).count();
+    let active_channels = (0..channels)
+        .filter(|channel| active[*channel / ANR_BLOCK_SIZE])
+        .count();
+    RoutingStats {
+        active_blocks,
+        total_blocks: active.len(),
+        active_channels,
+        total_channels: channels,
+        skipped_channels: channels.saturating_sub(active_channels),
+        active_ratio: active_channels as f32 / channels.max(1) as f32,
+        entropy: routing_entropy(probs),
+    }
+}
+
+fn affine_selected(
+    w: &[f32],
+    u: &[f32],
+    b: &[f32],
+    x: &[f32],
+    memory: &[f32],
+    dim: usize,
+    active: &[bool],
+    block_size: usize,
+    output: &mut [f32],
+    sigmoid_output: bool,
+) {
+    for block in 0..active.len() {
+        if !active[block] {
+            continue;
+        }
+        let start = block * block_size;
+        let end = (start + block_size).min(dim);
+        for row in start..end {
+            let mut sum = b[row];
+            for col in 0..dim {
+                sum += w[row * dim + col] * x[col] + u[row * dim + col] * memory[col];
+            }
+            output[row] = if sigmoid_output { sigmoid(sum) } else { sum.tanh() };
+        }
+    }
+}
+
+fn matvec_selected(
+    matrix: &[f32],
+    vector: &[f32],
+    rows: usize,
+    active: &[bool],
+    block_size: usize,
+    output: &mut [f32],
+) {
+    for block in 0..active.len() {
+        if !active[block] {
+            continue;
+        }
+        let start = block * block_size;
+        let end = (start + block_size).min(rows);
+        for row in start..end {
+            let mut sum = 0.0;
+            for col in 0..vector.len() {
+                sum += matrix[row * vector.len() + col] * vector[col];
+            }
+            output[row] = sum;
+        }
+    }
+}
+
+fn zero_router_parameters(model: &mut AiNet) {
+    for cell in &mut model.cells {
+        cell.router_w.data.fill(0.0);
+        cell.router_b.data.fill(0.0);
+        cell.router_w.grad.fill(0.0);
+        cell.router_b.grad.fill(0.0);
     }
 }
 
