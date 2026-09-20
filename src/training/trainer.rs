@@ -610,8 +610,17 @@ impl Trainer {
                     .flat_map(|values| values.iter())
                     .map(|v| (*v as f64) * (*v as f64))
                     .sum::<f64>();
+                let (activation_mean, activation_min, activation_max) = self
+                    .model
+                    .layer_activation_stats()
+                    .get(layer)
+                    .copied()
+                    .unwrap_or((0.0, 0.0, 0.0));
                 LayerTrainingStats {
                     layer,
+                    activation_mean,
+                    activation_min,
+                    activation_max,
                     weight_norm: weight_sum.sqrt() as f32,
                     gradient_norm,
                     memory_norm: memory_sum.sqrt() as f32,
