@@ -483,6 +483,44 @@ impl AppCore {
         self.log_event("Default byte tokenizer created automatically.");
     }
 
+    pub fn ensure_web_training_prerequisites(&mut self) -> Result<(), String> {
+        if self.safe_mode {
+            return Err("Web Learning is disabled in Safe Mode.".into());
+        }
+
+        self.ensure_default_tokenizer();
+        let tokenizer_path = self
+            .tokenizer_path
+            .clone()
+            .ok_or_else(|| "Web Learning tokenizer could not be created.".to_string())?;
+        let tokenizer = Tokenizer::load(&tokenizer_path)
+            .map_err(|e| format!("Load Web Learning tokenizer: {e}"))?;
+        let vocab = tokenizer.vocab_size();
+
+        let model_compatible = self
+            .model
+            .as_ref()
+            .and_then(|model| model.config.as_ref())
+            .is_some_and(|config| config.vocab_size == vocab);
+
+        if !model_compatible {
+            self.create_model(
+                "web-auto",
+                vocab,
+                64,
+                64,
+                2,
+                self.config.training.sequence_length.min(64),
+                1,
+            );
+        }
+
+        if self.model.is_none() {
+            return Err("Web Learning could not create a compatible AiNet model.".into());
+        }
+        Ok(())
+    }
+
     pub fn start_web_learning(&mut self) {
         if self.safe_mode {
             self.last_error = Some("Web Learning is disabled in Safe Mode.".into());
@@ -654,11 +692,11 @@ impl AppCore {
     }
 
     pub fn start_web_training_batch(&mut self) {
-        if self.model.is_none() {
-            self.last_error = Some("Create or load a model before Web Learning training.".into());
+        if let Err(error) = self.ensure_web_training_prerequisites() {
+            self.last_error = Some(error.clone());
+            self.logger.training(error);
             return;
         }
-        self.ensure_default_tokenizer();
         let Some(tokenizer_path) = self.tokenizer_path.clone() else {
             self.last_error = Some("Web Learning tokenizer is unavailable.".into());
             return;
