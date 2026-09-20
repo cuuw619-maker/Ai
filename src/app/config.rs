@@ -88,7 +88,6 @@ impl AppConfig {
             Ok(v) => v,
             Err(e) => {
                 preserve_broken(&path)?;
-                preserve_broken(&path)?;
                 let value = Self::default();
                 value.save(root)?;
                 return Ok((value, true));
