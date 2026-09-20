@@ -393,6 +393,17 @@ impl AiApplication {
         ui.add_space(8.0);
         card(ui, |ui| {
             ui.label(RichText::new("TRAINING ACTIVITY").strong());
+            ui.horizontal(|ui| {
+                if ui.button("EXPORT TRAINING REPORT").clicked() {
+                    self.core.export_training_report();
+                }
+                if ui.button("OPEN RUN").clicked() {
+                    if !self.core.training.run_id.is_empty() {
+                        let path = self.core.root.join("runs").join(&self.core.training.run_id);
+                        let _ = std::process::Command::new("explorer").arg(path).spawn();
+                    }
+                }
+            });
             egui::ScrollArea::vertical()
                 .max_height(180.0)
                 .stick_to_bottom(true)
