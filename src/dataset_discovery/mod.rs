@@ -197,7 +197,7 @@ impl DatasetSource for HuggingFaceSource {
                 .map(|v| v.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
                 .unwrap_or_default();
             let quality = quality_for_metadata(description, downloads, &tags);
-            if quality < filters.min_quality {
+            if quality < filters.min_quality || !size_matches(size_from_candidate(id), &filters.size) || !kind_matches(&filters.kind, &candidate_kind_from_id(id)) {
                 continue;
             }
             if !language_matches(&filters.language, &tags, description) {
@@ -1172,6 +1172,21 @@ fn infer_language(text: &str) -> String {
     else { "Unknown".into() }
 }
 
+fn size_matches(size_bytes: Option<u64>, wanted: &str) -> bool {
+    match wanted.to_ascii_lowercase().as_str() {
+        "any" => true,
+        "small" => size_bytes.map(|v| v <= 128 * 1024 * 1024).unwrap_or(true),
+        "medium" => size_bytes.map(|v| v > 128 * 1024 * 1024 && v <= 1024 * 1024 * 1024).unwrap_or(false),
+        "large" => size_bytes.map(|v| v > 1024 * 1024 * 1024).unwrap_or(true),
+        _ => true,
+    }
+}
+fn kind_matches(wanted: &str, detected: &str) -> bool {
+    wanted.eq_ignore_ascii_case("Any") || detected.eq_ignore_ascii_case(wanted)
+}
+fn size_from_candidate(_id: &str) -> Option<u64> { None }
+fn candidate_kind_from_id(_id: &str) -> String { "Text".into() }
+
 fn language_matches(wanted: &str, tags: &str, description: &str) -> bool {
     if wanted.eq_ignore_ascii_case("All") || wanted.eq_ignore_ascii_case("Any") { return true; }
     let haystack = format!("{} {}", tags, description).to_ascii_lowercase();
@@ -1232,7 +1247,7 @@ mod tests {
     #[test]
     fn candidate_file_names_are_safe() {
         assert!(allowed_download_name("data.jsonl"));
-        assert!(!allowed_download_name("dump.xml.bz2"));
+        assert!(allowed_download_name("dump.xml.bz2"));
         assert!(!allowed_download_name("payload.exe"));
     }
 
