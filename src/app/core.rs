@@ -174,6 +174,11 @@ pub struct LayerStats {
     pub weight_norm: f32,
     pub gradient_norm: f32,
     pub memory_norm: f32,
+    pub active_blocks: usize,
+    pub skipped_blocks: usize,
+    pub active_channels: usize,
+    pub skipped_channels: usize,
+    pub routing_entropy: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -1289,6 +1294,11 @@ impl AppCore {
                     weight_norm: layer.weight_norm,
                     gradient_norm: layer.gradient_norm,
                     memory_norm: layer.memory_norm,
+                    active_blocks: layer.active_blocks,
+                    skipped_blocks: layer.skipped_blocks,
+                    active_channels: layer.active_channels,
+                    skipped_channels: layer.skipped_channels,
+                    routing_entropy: layer.routing_entropy,
                 })
                 .collect(),
         };
