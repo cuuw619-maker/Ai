@@ -84,3 +84,30 @@ version=test
     app.mark_clean_shutdown();
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn corrupt_model_fails_loudly_without_panicking() {
+    let root = temp_root("model");
+    fs::create_dir_all(&root).unwrap();
+
+    let model_path = root.join("models").join("broken.aimodel");
+    fs::create_dir_all(model_path.parent().unwrap()).unwrap();
+    fs::write(&model_path, b"not-an-aimodel").unwrap();
+
+    let mut config = AppConfig::default();
+    config.first_start = false;
+    config.model_path = Some(model_path.display().to_string());
+    config.save(&root).unwrap();
+
+    let logger = Logger::new(root.join("logs")).unwrap();
+    let context = Arc::new(Mutex::new(CrashContext::default()));
+    let mut app = AppCore::bootstrap(&root, logger, context).unwrap();
+
+    assert!(app.model.is_none());
+    assert!(app.last_error.as_deref().is_some_and(|error| {
+        error.contains("Model corrupted") || error.contains("invalid")
+    }));
+
+    app.mark_clean_shutdown();
+    let _ = fs::remove_dir_all(root);
+}
