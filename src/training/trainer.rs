@@ -1,4 +1,4 @@
-use super::checkpoint::Checkpoint;
+use super::checkpoint::{Checkpoint, CheckpointSave};
 use super::config::TrainingConfig;
 use super::events::{TrainingCommand, TrainingEvent, TrainingProgress};
 use super::state::{TrainingState, TrainingStatus};
@@ -32,6 +32,20 @@ pub fn next_run_id(data_root: &Path) -> Result<String, String> {
         }
     }
     Ok(format!("run-{max_id:06}", max_id = max_id + 1))
+}
+
+#[derive(Clone)]
+struct TrainerBuild {
+    model: AiNet,
+    tokenizer: Tokenizer,
+    dataset_path: PathBuf,
+    dataset_format: DatasetFormat,
+    config: TrainingConfig,
+    data_root: PathBuf,
+    run: String,
+    dataset_id: String,
+    cursor: Option<DatasetCursor>,
+    resuming: bool,
 }
 
 pub struct Trainer {
@@ -73,7 +87,7 @@ impl Trainer {
         let data_root = data_root.as_ref().to_path_buf();
         let meta = dataset_metadata(&dataset_path, dataset_format.clone())?;
         let run = next_run_id(&data_root)?;
-        Self::build(
+        Self::build(TrainerBuild {
             model,
             tokenizer,
             dataset_path,
@@ -81,24 +95,25 @@ impl Trainer {
             config,
             data_root,
             run,
-            meta.dataset_id,
-            None,
-            false,
-        )
+            dataset_id: meta.dataset_id,
+            cursor: None,
+            resuming: false,
+        })
     }
 
-    fn build(
-        model: AiNet,
-        tokenizer: Tokenizer,
-        dataset_path: PathBuf,
-        dataset_format: DatasetFormat,
-        config: TrainingConfig,
-        data_root: PathBuf,
-        run: String,
-        dataset_id: String,
-        cursor: Option<DatasetCursor>,
-        resuming: bool,
-    ) -> Result<Self, String> {
+    fn build(input: TrainerBuild) -> Result<Self, String> {
+        let TrainerBuild {
+            model,
+            tokenizer,
+            dataset_path,
+            dataset_format,
+            config,
+            data_root,
+            run,
+            dataset_id,
+            cursor,
+            resuming,
+        } = input;
         config.validate()?;
         let tokenizer_id = tokenizer.tokenizer_id();
         if model.config.vocab_size != tokenizer.vocab_size() {
@@ -199,18 +214,18 @@ impl Trainer {
         if model.weights_checksum() != data.model_checksum {
             return Err("checkpoint model checksum mismatch".into());
         }
-        let mut trainer = Self::build(
+        let mut trainer = Self::build(TrainerBuild {
             model,
             tokenizer,
-            dataset_path.as_ref().to_path_buf(),
+            dataset_path: dataset_path.as_ref().to_path_buf(),
             dataset_format,
-            data.config.clone(),
-            data_root.as_ref().to_path_buf(),
-            data.run_id.clone(),
-            data.dataset_id.clone(),
-            Some(data.cursor.clone()),
-            true,
-        )?;
+            config: data.config.clone(),
+            data_root: data_root.as_ref().to_path_buf(),
+            run: data.run_id.clone(),
+            dataset_id: data.dataset_id.clone(),
+            cursor: Some(data.cursor.clone()),
+            resuming: true,
+        })?;
         trainer.state = data.state.clone();
         trainer.state.transition(TrainingStatus::Resuming)?;
         trainer.state.random_state = data.random_state;
@@ -237,12 +252,14 @@ impl Trainer {
     ) {
         if self.state.status == TrainingStatus::Resuming {
             let _ = events.send(TrainingEvent::Resumed);
-        } else {
-            let _ = self.state.transition(TrainingStatus::Starting);
         }
-        if self.state.status == TrainingStatus::Starting {
+        if matches!(
+            self.state.status,
+            TrainingStatus::Starting | TrainingStatus::Resuming
+        ) {
             let _ = self.state.transition(TrainingStatus::Running);
-        } else if self.state.status == TrainingStatus::Resuming {
+        } else if self.state.status == TrainingStatus::Idle {
+            let _ = self.state.transition(TrainingStatus::Starting);
             let _ = self.state.transition(TrainingStatus::Running);
         }
         if let Err(e) = self
@@ -452,7 +469,12 @@ impl Trainer {
                 return;
             }
 
-            if self.state.step > 0 && self.state.step % self.config.checkpoint_interval_steps == 0 {
+            if self
+                .state
+                .step
+                .is_multiple_of(self.config.checkpoint_interval_steps)
+                && self.state.step != 0
+            {
                 let _ = self.state.transition(TrainingStatus::Saving);
                 if self
                     .save_checkpoint(events, TrainingStatus::Running, &memory)
@@ -534,19 +556,19 @@ impl Trainer {
         let latest = self
             .run_dir
             .join("checkpoints/checkpoint-latest.aicheckpoint");
-        Checkpoint::save_latest(
-            &latest,
-            &self.state.run_id,
-            &self.model,
-            &optimizer_state,
-            &self.dataset_id,
-            &self.tokenizer_id,
-            &state,
-            &self.config,
-            self.state.random_state,
-            memory,
-            now_ms(),
-        )?;
+        Checkpoint::save_latest(CheckpointSave {
+            path: &latest,
+            run_id: &self.state.run_id,
+            model: &self.model,
+            optimizer: &optimizer_state,
+            dataset_id: &self.dataset_id,
+            tokenizer_id: &self.tokenizer_id,
+            state: &state,
+            config: &self.config,
+            random_state: self.state.random_state,
+            memory_state: memory,
+            timestamp_unix_ms: now_ms(),
+        })?;
         let numbered = self.run_dir.join(format!(
             "checkpoints/checkpoint-{:09}.aicheckpoint",
             self.state.step
