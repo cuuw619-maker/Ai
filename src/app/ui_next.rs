@@ -65,6 +65,7 @@ impl AiApplication {
 
         let selected_log = "APP LOG".to_string();
         let initial_page = core.page;
+        let dataset_discovery = if core.safe_mode { None } else { DatasetDiscovery::spawn(&core.root).ok() };
         let default_vocab = core
             .tokenizer_path
             .as_ref()
@@ -92,7 +93,7 @@ impl AiApplication {
             confirm_clear_logs: false,
             selected_log,
             last_finalized_run: String::new(),
-            dataset_discovery: if core.safe_mode { None } else { DatasetDiscovery::spawn(&core.root).ok() },
+            dataset_discovery,
             dd_results: Vec::new(),
             dd_query: "general text".into(),
             dd_language: "English".into(),
