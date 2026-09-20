@@ -25,9 +25,29 @@ pub struct TrainingProgress {
 }
 
 #[derive(Clone, Debug)]
+pub struct LayerTrainingStats {
+    pub layer: usize,
+    pub weight_norm: f32,
+    pub gradient_norm: f32,
+    pub memory_norm: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct ModelTrainingSnapshot {
+    pub parameter_count: usize,
+    pub checksum: u64,
+    pub gradient_magnitude: f32,
+    pub updated_parameters: usize,
+    pub average_update: f32,
+    pub max_update: f32,
+    pub layers: Vec<LayerTrainingStats>,
+}
+
+#[derive(Clone, Debug)]
 pub enum TrainingEvent {
     Started(TrainingProgress),
     Step(TrainingProgress),
+    ModelSnapshot(ModelTrainingSnapshot),
     CheckpointSaved(std::path::PathBuf),
     Paused,
     Resumed,
