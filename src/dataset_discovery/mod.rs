@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
-use ureq::Agent;
 use url::Url;
 
 const USER_AGENT: &str = "AiNet-DatasetDiscovery/1.0";
@@ -201,7 +200,7 @@ impl DatasetSource for HuggingFaceSource {
             if quality < filters.min_quality {
                 continue;
             }
-            if !language_matches(&filters.language, &tags.join(" "), description) {
+            if !language_matches(&filters.language, &tags, description) {
                 continue;
             }
             let mut candidate = self.get_metadata(id)?;
@@ -392,8 +391,8 @@ impl DatasetSource for GitHubSource {
             name: repo.into(),
             source: DatasetSourceKind::GitHub,
             source_url: format!("https://github.com/{repo}"),
-            download_url,
-            preview_url: download_url.clone(),
+            download_url: download_url.clone(),
+            preview_url: download_url,
             language: infer_language(description),
             topic: infer_topic(description),
             kind,
