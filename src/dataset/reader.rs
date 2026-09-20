@@ -85,7 +85,7 @@ impl DatasetReader {
             }
             let text = match self.format {
                 DatasetFormat::Txt | DatasetFormat::Aicorpus => {
-                    line.trim_end_matches(&['\\r', '\\n'][..]).to_owned()
+                    line.trim_end_matches(&['\r', '\n'][..]).to_owned()
                 }
                 DatasetFormat::Jsonl | DatasetFormat::Json => parse_jsonl(&line)?,
                 DatasetFormat::Csv => self.parse_csv(&line)?,
