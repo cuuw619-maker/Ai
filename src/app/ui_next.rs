@@ -64,6 +64,7 @@ impl AiApplication {
         }
 
         let selected_log = "APP LOG".to_string();
+        let initial_page = core.page;
         let default_vocab = core
             .tokenizer_path
             .as_ref()
@@ -105,7 +106,7 @@ impl AiApplication {
             dd_progress: None,
             dd_preview: None,
             dd_pending_approval: None,
-            last_rendered_page: core.page,
+            last_rendered_page: initial_page,
             page_transition_until: Instant::now(),
         }
     }
