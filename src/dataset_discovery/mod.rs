@@ -763,6 +763,7 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
                             }
                             persist_candidates(&root, candidates.values());
                         }
+                    }
                     Err(error) => {
                         if error.starts_with("APPROVAL:") {
                             let size = error.trim_start_matches("APPROVAL:").parse::<u64>().unwrap_or(0);
