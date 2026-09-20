@@ -5,7 +5,7 @@ mod state;
 mod trainer;
 mod worker;
 
-pub use checkpoint::{Checkpoint, CheckpointData};
+pub use checkpoint::{Checkpoint, CheckpointData, CheckpointSave};
 pub use config::TrainingConfig;
 pub use events::{TrainingCommand, TrainingEvent, TrainingProgress};
 pub use state::{TrainingState, TrainingStatus};
