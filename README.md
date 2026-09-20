@@ -33,13 +33,15 @@ The repository now contains a console-first training pipeline:
 
 ## CLI
 
-Create a new model from random weights:
+Train the project tokenizer first:
+
+    Ai.exe tokenizer train --dataset corpus.txt --format txt --vocab 4096 --output data/tokenizer/tokenizer.aitok
+
+The command prints the actual tokenizer vocabulary size. Create a new model from random weights with that exact vocabulary size:
 
     Ai.exe model create --name my-model --vocab 4096 --embedding 192 --hidden 192 --layers 6 --sequence 128 --seed 1 --output data/models/model.aimodel
 
-Train the project tokenizer:
-
-    Ai.exe tokenizer train --dataset corpus.txt --format txt --vocab 4096 --output data/tokenizer/tokenizer.aitok
+For a corpus that cannot produce all requested BPE merges, use the actual printed vocab size instead of assuming the target size.
 
 Validate a dataset:
 
