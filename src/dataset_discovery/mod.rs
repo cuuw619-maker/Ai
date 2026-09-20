@@ -734,7 +734,13 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
         if !paused && !stopped {
             if let Some((id, allow_large, auto_prepare)) = download_queue.pop_front() {
                 if let Some(candidate) = candidates.get_mut(&id) {
-                    match download_candidate(&root, candidate.clone(), allow_large, &events) {
+                    let result = download_candidate(
+                        &root,
+                        candidate.clone(),
+                        allow_large,
+                        &events,
+                    );
+                    match result {
                         Ok(updated) => {
                             candidates.insert(id.clone(), updated.clone());
                             let _ = events.send(DatasetEvent::Candidate(updated.clone()));
@@ -742,11 +748,11 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
                             if auto_prepare {
                                 match prepare_candidate(&root, &updated, &events) {
                                     Ok(mut ready) => {
-                                        candidates.insert(id.clone(), ready.clone());
-                                        let _ = events.send(DatasetEvent::Ready(ready.clone()));
                                         ready.state = DatasetState::UsedInTraining;
                                         candidates.insert(id.clone(), ready.clone());
-                                        let _ = events.send(DatasetEvent::UsedForTraining(ready));
+                                        let _ = events.send(DatasetEvent::Ready(ready.clone()));
+                                        let _ =
+                                            events.send(DatasetEvent::UsedForTraining(ready));
                                     }
                                     Err(error) => {
                                         let mut failed = updated;
@@ -763,25 +769,33 @@ fn run_manager(root: PathBuf, commands: Receiver<DatasetCommand>, events: Sender
                             }
                             persist_candidates(&root, candidates.values());
                         }
-                    Err(error) => {
-                        if error.starts_with("APPROVAL:") {
-                            let size = error.trim_start_matches("APPROVAL:").parse::<u64>().unwrap_or(0);
-                            if let Some(candidate) = candidates.get_mut(&id) {
-                                candidate.state = DatasetState::AwaitingApproval;
-                                let _ = events.send(DatasetEvent::Candidate(candidate.clone()));
-                                let _ = events.send(DatasetEvent::DownloadNeedsApproval {
-                                    id: id.clone(),
-                                    size_bytes: size,
-                                    limit_bytes: DEFAULT_MAX_DOWNLOAD_BYTES,
+                        Err(error) => {
+                            if error.starts_with("APPROVAL:") {
+                                let size = error
+                                    .trim_start_matches("APPROVAL:")
+                                    .parse::<u64>()
+                                    .unwrap_or(0);
+                                if let Some(candidate) = candidates.get_mut(&id) {
+                                    candidate.state = DatasetState::AwaitingApproval;
+                                    let _ =
+                                        events.send(DatasetEvent::Candidate(candidate.clone()));
+                                    let _ = events.send(DatasetEvent::DownloadNeedsApproval {
+                                        id: id.clone(),
+                                        size_bytes: size,
+                                        limit_bytes: DEFAULT_MAX_DOWNLOAD_BYTES,
+                                    });
+                                }
+                            } else {
+                                let mut failed = candidate.clone();
+                                failed.state = DatasetState::Failed;
+                                failed.error = Some(error.clone());
+                                candidates.insert(id.clone(), failed.clone());
+                                let _ = events.send(DatasetEvent::Candidate(failed));
+                                let _ = events.send(DatasetEvent::Error {
+                                    id: Some(id.clone()),
+                                    message: error,
                                 });
                             }
-                        } else {
-                            let mut failed = candidate.clone();
-                            failed.state = DatasetState::Failed;
-                            failed.error = Some(error.clone());
-                            candidates.insert(id.clone(), failed.clone());
-                            let _ = events.send(DatasetEvent::Candidate(failed));
-                            let _ = events.send(DatasetEvent::Error { id: Some(id.clone()), message: error });
                         }
                     }
                 }
