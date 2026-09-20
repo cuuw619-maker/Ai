@@ -42,7 +42,7 @@ pub fn text(language: &str, key: &str) -> &'static str {
     } else {
         match key {
             "HOME" | "CHAT" | "TRAIN" | "MODEL" | "DATASET" | "MEMORY" | "EVALUATION"
-            | "LOGS" | "SETTINGS" | "SYSTEM" | "WEB LEARNING" => match key {
+            | "LOGS" | "SETTINGS" | "SYSTEM" | "WEB LEARNING" | "DATA DISCOVERY" => match key {
                 "HOME" => "HOME",
                 "CHAT" => "CHAT",
                 "TRAIN" => "TRAIN",
