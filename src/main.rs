@@ -345,12 +345,39 @@ fn benchmark_command() -> Result<(), String> {
     let input = [1usize; 32];
     let target = [2usize; 32];
     let mut model = model;
+
+    let started = Instant::now();
+    for _ in 0..100 {
+        model.sequence_loss(&input, &target, None)?;
+    }
+    let elapsed = started.elapsed().as_secs_f64().max(1e-9);
+    println!(
+        "forward_only_tokens_per_second={:.3}",
+        3200.0 / elapsed
+    );
+
     let started = Instant::now();
     for _ in 0..10 {
         model.train_step(&input, &target, None)?;
     }
     let elapsed = started.elapsed().as_secs_f64().max(1e-9);
-    println!("training_tokens_per_second={:.3}", 320.0 / elapsed);
+    println!(
+        "forward_backward_tokens_per_second={:.3}",
+        320.0 / elapsed
+    );
+
+    let mut optimizer = ai::optimizer::AdamW::new(0.001, 0.01);
+    let started = Instant::now();
+    for _ in 0..10 {
+        model.train_step(&input, &target, None)?;
+        optimizer.step(model.parameters_mut());
+    }
+    let elapsed = started.elapsed().as_secs_f64().max(1e-9);
+    println!(
+        "training_step_tokens_per_second={:.3}",
+        320.0 / elapsed
+    );
+
     let text = "Привет, hello, 123, 🙂";
     let started = Instant::now();
     let mut total = 0usize;
