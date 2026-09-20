@@ -34,6 +34,7 @@ pub struct ModelMemoryReport {
     pub bptt_cache_bytes: usize,
     pub hidden_history_bytes: usize,
     pub temporary_bytes: usize,
+    pub dataset_buffer_bytes: usize,
 }
 
 impl ModelMemoryReport {
@@ -48,6 +49,7 @@ impl ModelMemoryReport {
             + self.bptt_cache_bytes
             + self.hidden_history_bytes
             + self.temporary_bytes
+            + self.dataset_buffer_bytes
     }
 }
 
@@ -744,6 +746,8 @@ impl AiNet {
             bptt_cache_bytes,
             hidden_history_bytes,
             temporary_bytes: hidden_history_bytes,
+            dataset_buffer_bytes: 4 * 1024 * 1024
+                + (sequence_length + 1) * std::mem::size_of::<u32>(),
         }
     }
 
