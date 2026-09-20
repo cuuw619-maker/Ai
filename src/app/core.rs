@@ -221,7 +221,7 @@ pub struct TrainingRecovery {
 }
 
 enum ChatEvent {
-    Token(Vec<u32>),
+    Token(String),
     Finished(Result<(), String>),
 }
 
@@ -700,12 +700,11 @@ impl AppCore {
                 let tokenizer = Tokenizer::load(&tokenizer_path)?;
                 let mut engine = InferenceEngine::new(seed);
                 engine.load(&model_path)?;
-                engine.generate_stream_cancelled(&tokenizer.encode(&prompt), tokenizer.eos_id(), max_tokens, &generation, |token, sequence| {
-                    if let Ok(text) = tokenizer.decode(sequence) {
-                        let prompt_len = tokenizer.encode(&prompt).len();
-                        let generated_ids = &sequence[prompt_len.min(sequence.len())..];
-                        let generated = tokenizer.decode(generated_ids).unwrap_or_else(|_| text.clone());
-                        let _ = tx.send(ChatEvent::Token(vec![generated.as_bytes().len() as u32]));
+                engine.generate_stream_cancelled(&tokenizer.encode(&prompt), tokenizer.eos_id(), max_tokens, &generation, |_token, sequence| {
+                    let prompt_len = tokenizer.encode(&prompt).len();
+                    let generated_ids = &sequence[prompt_len.min(sequence.len())..];
+                    if let Ok(generated) = tokenizer.decode(generated_ids) {
+                        let _ = tx.send(ChatEvent::Token(generated));
                     }
                     !stop.load(Ordering::Relaxed)
                 })?;
@@ -901,12 +900,8 @@ impl AppCore {
         }
         for event in events {
             match event {
-                ChatEvent::Token(ids) => {
-                    if let Some(tokenizer_path) = &self.tokenizer_path {
-                        if let Ok(tokenizer) = Tokenizer::load(tokenizer_path) {
-                            self.chat_generated = tokenizer.decode(&ids).unwrap_or_default();
-                        }
-                    }
+                ChatEvent::Token(text) => {
+                    self.chat_generated = text;
                 }
                 ChatEvent::Finished(result) => {
                     self.chat_generating = false;
