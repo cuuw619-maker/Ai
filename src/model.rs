@@ -550,6 +550,59 @@ impl AiNet {
         Ok((loss * scale, memory))
     }
 
+    pub fn sequence_loss(
+        &self,
+        input_tokens: &[usize],
+        target_tokens: &[usize],
+        initial_memory: Option<&[Vec<f32>]>,
+    ) -> Result<(f32, Vec<Vec<f32>>), String> {
+        if input_tokens.is_empty() || input_tokens.len() != target_tokens.len() {
+            return Err("input and target sequence lengths must match and be non-zero".into());
+        }
+        if input_tokens.len() > self.config.sequence_length {
+            return Err("sequence exceeds model sequence_length".into());
+        }
+        if input_tokens
+            .iter()
+            .chain(target_tokens)
+            .any(|token| *token >= self.config.vocab_size)
+        {
+            return Err("token id outside vocabulary".into());
+        }
+
+        let mut memory = initial_memory
+            .map(|m| m.to_vec())
+            .unwrap_or_else(|| vec![vec![0.0; self.config.hidden_dim]; self.config.layer_count]);
+        if memory.len() != self.config.layer_count
+            || memory
+                .iter()
+                .any(|layer| layer.len() != self.config.hidden_dim)
+        {
+            return Err("initial memory shape mismatch".into());
+        }
+
+        let mut loss = 0.0;
+        for (input, &target) in input_tokens.iter().zip(target_tokens) {
+            let embedding = embedding_row(&self.embedding.data, *input, self.config.embedding_dim);
+            let mut x = self.project_input(&embedding)?;
+            for (layer, cell) in self.cells.iter().enumerate() {
+                let cache = cell.forward(&x, &memory[layer]);
+                memory[layer] = cache.new_memory;
+                x = x
+                    .iter()
+                    .zip(&cache.output_activation)
+                    .map(|(a, b)| a + b)
+                    .collect();
+            }
+            let mut logits = matvec(&self.output_w.data, &x, self.config.vocab_size);
+            for (value, bias) in logits.iter_mut().zip(&self.output_b.data) {
+                *value += *bias;
+            }
+            loss += cross_entropy(&logits, target);
+        }
+        Ok((loss / input_tokens.len() as f32, memory))
+    }
+
     pub fn trainable_architecture(&self) -> &str {
         &self.config.architecture
     }
