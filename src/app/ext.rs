@@ -94,7 +94,7 @@ impl AppCore {
         self.log_event("Dataset selection removed.");
     }
 
-    pub fn clear_rotated_logs(&mut self) -> Result<(), String> {
+    pub fn clear_rotated_log_files(&mut self) -> Result<(), String> {
         for stem in ["app", "training", "inference", "crash"] {
             for suffix in ["1", "2"] {
                 let path = self.logger.directory().join(format!("{stem}.log.{suffix}"));

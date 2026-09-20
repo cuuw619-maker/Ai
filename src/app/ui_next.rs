@@ -797,7 +797,7 @@ impl AiApplication {
                 );
                 ui.horizontal(|ui| {
                     if ui.button("CONFIRM CLEAR").clicked() {
-                        match self.core.clear_rotated_logs() {
+                        match self.core.clear_rotated_log_files() {
                             Ok(()) => self.confirm_clear_logs = false,
                             Err(error) => self.core.last_error = Some(error),
                         }
