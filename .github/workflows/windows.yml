@@ -24,21 +24,6 @@ jobs:
           targets: x86_64-pc-windows-msvc
           components: rustfmt, clippy
 
-      - name: Apply rustfmt and upload normalized sources
-        shell: pwsh
-        run: |
-          cargo fmt --all
-          Compress-Archive -Path src,tests,Cargo.toml -DestinationPath fmt-source.zip -Force
-          git diff -- src/model.rs src/architecture/ainet.rs src/architecture/mod.rs src/architecture/aicell.rs src/training/evaluation.rs src/training/mod.rs src/training/trainer.rs src/training/checkpoint.rs src/main.rs > rustfmt.patch
-
-      - name: Upload normalized sources and patch
-        uses: actions/upload-artifact@v4
-        with:
-          name: fmt-source-${{ github.run_id }}
-          path: |
-            fmt-source.zip
-            rustfmt.patch
-
       - name: Format check
         run: cargo fmt --check
 
