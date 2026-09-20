@@ -70,6 +70,14 @@ impl Logger {
             .join("\n")
     }
 
+    pub fn clear_rotated_logs(&self) {
+        for name in ["app.log", "training.log", "inference.log", "crash.log"] {
+            let path = self.directory.join(name);
+            let _ = fs::remove_file(path.with_extension("log.1"));
+            let _ = fs::remove_file(path.with_extension("log.2"));
+        }
+    }
+
     pub fn directory(&self) -> &Path {
         &self.directory
     }
@@ -113,6 +121,9 @@ impl RuntimeGuard {
     }
 
     pub fn mark_clean(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
         if self.active {
             let _ = fs::remove_file(&self.lock_path);
             self.active = false;
@@ -167,6 +178,19 @@ pub fn install_panic_hook(logger: Logger, context: Arc<Mutex<CrashContext>>) {
             backtrace
         );
         logger.crash(text);
+        let marker = logger
+            .directory()
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("crash.marker");
+        let _ = fs::write(
+            marker,
+            format!(
+                "panic_unix_ms={}\nversion={}\n",
+                now_ms(),
+                env!("CARGO_PKG_VERSION")
+            ),
+        );
     }));
 }
 

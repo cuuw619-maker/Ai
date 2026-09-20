@@ -228,7 +228,7 @@ impl AiApplication {
                         self.core.resume_training();
                     }
                 } else if self.core.worker.is_none() && ui.button("START TRAINING").clicked() {
-                    self.core.start_training();
+                    self.core.start_training_dialog = true;
                 }
             });
         });
@@ -904,6 +904,98 @@ impl AiApplication {
         }
     }
 
+    fn start_training_dialog(&mut self, ctx: &egui::Context) {
+        if !self.core.start_training_dialog {
+            return;
+        }
+        egui::Window::new("Start Training")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(RichText::new("Training preflight").size(20.0).strong());
+                ui.add_space(8.0);
+                let model_name = self
+                    .core
+                    .model
+                    .as_ref()
+                    .and_then(|m| m.config.as_ref())
+                    .map(|c| c.model_id.as_str())
+                    .unwrap_or("—");
+                let dataset_name = self
+                    .core
+                    .dataset
+                    .as_ref()
+                    .and_then(|d| d.path.file_name())
+                    .and_then(|v| v.to_str())
+                    .unwrap_or("—");
+                row_value(ui, "Model", model_name);
+                row_value(ui, "Dataset", dataset_name);
+                let (parameters, estimated_bytes) =
+                    self.core.training_resource_estimate().unwrap_or((0, 0));
+                row_value(ui, "Parameters", &parameters.to_string());
+                row_value(
+                    ui,
+                    "Model + training estimate",
+                    &AppCore::format_mb(estimated_bytes),
+                );
+                row_value(
+                    ui,
+                    "Available RAM",
+                    &AppCore::format_mb(self.core.resources.ram_available_bytes),
+                );
+                row_value(
+                    ui,
+                    "Sequence",
+                    &self.core.config.training.sequence_length.to_string(),
+                );
+                row_value(ui, "Batch", "1");
+                row_value(
+                    ui,
+                    "Gradient accumulation",
+                    &self.core.config.training.gradient_accumulation.to_string(),
+                );
+                row_value(
+                    ui,
+                    "Threads",
+                    &self.core.config.training.max_cpu_threads.to_string(),
+                );
+                row_value(
+                    ui,
+                    "Learning rate",
+                    &format!("{:.6}", self.core.config.training.learning_rate),
+                );
+                row_value(ui, "Epochs", &self.core.config.training.epochs.to_string());
+
+                let memory_warning = estimated_bytes > self.core.resources.ram_available_bytes
+                    || estimated_bytes / 1024 / 1024
+                        > self.core.config.training.memory_budget_mb as u64;
+                if memory_warning {
+                    ui.add_space(8.0);
+                    ui.colored_label(
+                        Color32::YELLOW,
+                        "WARNING: estimated memory is above the configured safe envelope.",
+                    );
+                    ui.label(
+                        "LOW MEMORY MODE reduces sequence length, accumulation and memory budget.",
+                    );
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("CANCEL").clicked() {
+                        self.core.start_training_dialog = false;
+                    }
+                    if memory_warning && ui.button("LOW MEMORY MODE").clicked() {
+                        self.core.apply_low_memory_profile();
+                    }
+                    if ui.button("START").clicked() {
+                        self.core.start_training_dialog = false;
+                        self.core.start_training();
+                    }
+                });
+            });
+    }
+
     fn recovery_overlay(&mut self, ctx: &egui::Context) {
         if self.core.previous_crash {
             egui::Window::new("Previous crash detected")
@@ -926,7 +1018,9 @@ impl AiApplication {
                         }
                         if ui.button("SAFE MODE").clicked() {
                             self.core.safe_mode = true;
+                            self.core.config.safe_mode = true;
                             self.core.previous_crash = false;
+                            self.core.save_config();
                             self.core.worker = None;
                             self.core.model = None;
                             self.core.log_event("Safe mode enabled.");
@@ -1014,6 +1108,7 @@ impl eframe::App for AiApplication {
                     });
                 });
         }
+        self.start_training_dialog(ctx);
         if let Some(results) = &self.core.self_test_result {
             egui::Window::new("Self Test")
                 .resizable(true)

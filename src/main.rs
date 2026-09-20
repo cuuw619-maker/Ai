@@ -35,6 +35,7 @@ fn main() {
         Ok(core) => core,
         Err(error) => {
             logger.app(format!("startup failure: {error}"));
+            logger.crash(format!("STARTUP ERROR\nmessage={error}"));
             show_startup_error(&error, &log_dir.join("crash.log"));
             return;
         }
@@ -59,6 +60,7 @@ fn main() {
     );
     if let Err(error) = result {
         logger.app(format!("eframe terminated with error: {error}"));
+        logger.crash(format!("UI STARTUP/SHUTDOWN ERROR\nmessage={error}"));
         show_startup_error(&error.to_string(), &log_dir.join("crash.log"));
     }
 }
