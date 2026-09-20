@@ -185,7 +185,11 @@ pub fn install_panic_hook(logger: Logger, context: Arc<Mutex<CrashContext>>) {
             .join("crash.marker");
         let _ = fs::write(
             marker,
-            format!("panic_unix_ms={}\nversion={}\n", now_ms(), env!("CARGO_PKG_VERSION")),
+            format!(
+                "panic_unix_ms={}\nversion={}\n",
+                now_ms(),
+                env!("CARGO_PKG_VERSION")
+            ),
         );
     }));
 }
