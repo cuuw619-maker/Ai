@@ -155,7 +155,6 @@ struct FetchedPage {
 struct ParsedDocument {
     title: String,
     published_at: Option<String>,
-    author: Option<String>,
     text: String,
     alternate_feeds: Vec<String>,
     links: Vec<String>,
@@ -268,7 +267,6 @@ impl ContentCleaner {
                         if let Some((key, value)) = meta_pair(&attrs) {
                             match key.to_ascii_lowercase().as_str() {
                                 "article:published_time" | "date" | "pubdate" => doc.published_at = Some(value),
-                                "author" | "article:author" => doc.author = Some(value),
                                 _ => {}
                             }
                         }
@@ -722,6 +720,21 @@ impl CorpusStore {
         let items: i64 = conn.query_row("SELECT COUNT(*) FROM training_queue WHERE state='queued'", [], |row| row.get(0)).map_err(|e| e.to_string())?;
         Ok(WebStats { articles_collected: articles.max(0) as u64, tokens_queued: queued.max(0) as u64, training_queue: items.max(0) as u64, last_update: Some(now_ms()), ..Default::default() })
     }
+    pub fn mark_queue_state(&self, state: &str, limit: usize) -> Result<usize, String> {
+        self.connection()?.execute(
+            "UPDATE training_queue SET state=?1 WHERE id IN(
+                SELECT id FROM training_queue WHERE state='queued' ORDER BY id LIMIT ?2
+            )",
+            params![state, limit as i64],
+        ).map_err(|e| format!("update training queue: {e}"))
+    }
+
+    pub fn recover_inflight(&self) -> Result<usize, String> {
+        self.connection()?.execute(
+            "UPDATE training_queue SET state='queued' WHERE state='inflight'"
+        ).map_err(|e| format!("recover training queue: {e}"))
+    }
+
     pub fn export_training_snapshot(&self, output: &Path, replay_percent: u8) -> Result<u64, String> {
         let conn = self.connection()?;
         let fresh = 100usize.saturating_sub(replay_percent as usize);
@@ -766,6 +779,9 @@ impl TrainingBridge {
         let store = CorpusStore::open(root)?;
         let path = root.join("web_learning/training_snapshot.txt");
         let lines = store.export_training_snapshot(&path, replay_ratio_percent)?;
+        if lines != 0 {
+            store.mark_queue_state("inflight", 4096)?;
+        }
         Ok((path, lines))
     }
 }
@@ -796,6 +812,7 @@ impl Drop for WebLearner { fn drop(&mut self) { self.stop_and_join(); } }
 fn run_scheduler(root: PathBuf, settings: WebSettings, command_rx: Receiver<WebCommand>, event_tx: Sender<WebEvent>) {
     let mut registry = match SourceRegistry::load(&root) { Ok(v)=>v, Err(e)=>{let _=event_tx.send(WebEvent::Error{source_id:None,error:e});return;} };
     let store = match CorpusStore::open(&root) { Ok(v)=>v, Err(e)=>{let _=event_tx.send(WebEvent::Error{source_id:None,error:e});return;} };
+    let _ = store.recover_inflight();
     let tokenizer = settings.tokenizer_path.as_deref().and_then(|p| crate::tokenizer::Tokenizer::load(p).ok());
     let limiter = DomainLimiter::new();
     let (scan_tx, scan_rx) = mpsc::channel::<ScanResult>();
@@ -954,7 +971,7 @@ fn freshness_allowed(article: &ArticleRecord, hours: u64) -> bool {
         let mut total = 0i64;
         for year in 1970..yy { total += if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 366 } else { 365 }; }
         let month_days = [31i64,28,31,30,31,30,31,31,30,31,30,31];
-        for month in 1..m { total += month_days[(month-1) as usize] + if month==2 && yy%4==0 && (yy%100!=0||yy%400==0) {1} else {0}; }
+        for month in 1..mm { total += month_days[(month-1) as usize] + if month==2 && yy%4==0 && (yy%100!=0||yy%400==0) {1} else {0}; }
         total + dd as i64 - 1
     };
     let article_day = ordinal(y,m,d);
