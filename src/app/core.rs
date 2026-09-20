@@ -310,7 +310,7 @@ impl AppCore {
             core.wizard_open = true;
         }
         core.refresh_resources();
-        if !core.previous_crash {
+        if !core.previous_crash && !core.safe_mode {
             core.refresh_model();
         }
         core.refresh_tokenizer();
