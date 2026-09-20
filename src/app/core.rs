@@ -222,7 +222,8 @@ pub struct AppCore {
     pub log_channel: String,
     pub wizard_step: usize,
     pub wizard_open: bool,
-    last_resource_poll: Instant,
+    pub start_training_dialog: bool,
+    pub last_resource_poll: Instant,
 }
 
 #[derive(Clone, Debug)]
@@ -248,7 +249,9 @@ impl AppCore {
     ) -> Result<Self, String> {
         let root = root.as_ref().to_path_buf();
         fs::create_dir_all(&root).map_err(|e| format!("storage initialization: {e}"))?;
-        let (runtime, previous_crash) = RuntimeGuard::acquire(&root)?;
+        let (runtime, lock_recovery) = RuntimeGuard::acquire(&root)?;
+        let marker_recovery = root.join("crash.marker").exists();
+        let previous_crash = lock_recovery || marker_recovery;
         let (config, config_recovered) = AppConfig::load(&root)?;
         if config_recovered {
             logger.app("config.toml was invalid; preserved broken config and created defaults");
@@ -292,6 +295,7 @@ impl AppCore {
             log_channel: "APP LOG".into(),
             wizard_step: 0,
             wizard_open: false,
+            start_training_dialog: false,
             last_resource_poll: Instant::now(),
         };
         if core.previous_crash {
@@ -535,6 +539,42 @@ impl AppCore {
         self.config.model_path = Some(path.display().to_string());
         self.save_config();
         self.refresh_model();
+    }
+
+    pub fn training_resource_estimate(&self) -> Option<(usize, u64)> {
+        let model = self.model.as_ref()?;
+        let config = model.config.as_ref()?;
+        let weights = (model.parameter_count as u64).saturating_mul(4);
+        let bptt = (self.config.training.sequence_length as u64)
+            .saturating_mul(config.layer_count as u64)
+            .saturating_mul(config.hidden_dim as u64)
+            .saturating_mul(8)
+            .saturating_mul(4);
+        let optimizer = weights.saturating_mul(2);
+        let dataset_buffer = (self.config.training.sequence_length as u64)
+            .saturating_mul(4)
+            .saturating_mul(64);
+        let estimate = weights
+            .saturating_add(optimizer)
+            .saturating_add(bptt)
+            .saturating_add(dataset_buffer)
+            .saturating_add(8 * 1024 * 1024);
+        Some((model.parameter_count, estimate))
+    }
+
+    pub fn apply_low_memory_profile(&mut self) {
+        self.config.performance_profile = "LOW-END".into();
+        self.config.training.max_cpu_threads = 2;
+        self.config.training.sequence_length = self.config.training.sequence_length.min(64).max(8);
+        self.config.training.gradient_accumulation = self.config.training.gradient_accumulation.min(4).max(1);
+        self.config.training.memory_budget_mb = self.config.training.memory_budget_mb.min(2048).max(512);
+        self.save_config();
+        self.log_event("LOW-END profile applied.");
+    }
+
+    pub fn clear_rotated_logs(&mut self) {
+        self.logger.clear_rotated_logs();
+        self.log_event("Rotated logs cleared.");
     }
 
     pub fn start_training(&mut self) {
@@ -1124,6 +1164,7 @@ impl AppCore {
     pub fn mark_clean_shutdown(&mut self) {
         self.save_config();
         self.runtime.mark_clean();
+        let _ = fs::remove_file(self.root.join("crash.marker"));
         self.resource_monitor.stop();
     }
 
@@ -1157,6 +1198,9 @@ impl Drop for AppCore {
         }
         self.resource_monitor.stop();
         self.runtime.mark_clean();
+        if !std::thread::panicking() {
+            let _ = fs::remove_file(self.root.join("crash.marker"));
+        }
     }
 }
 
