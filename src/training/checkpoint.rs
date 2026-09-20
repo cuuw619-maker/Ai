@@ -7,8 +7,8 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-const MAGIC: &[u8; 8] = b"AICHPv01";
-const VERSION: u32 = 1;
+const MAGIC: &[u8; 8] = b"AICHPv02";
+const VERSION: u32 = 2;
 
 #[derive(Clone, Debug)]
 pub struct CheckpointData {
